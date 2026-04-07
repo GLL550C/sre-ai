@@ -172,3 +172,55 @@ type PrometheusQueryResult struct {
 		} `json:"result"`
 	} `json:"data"`
 }
+
+// User represents a system user
+type User struct {
+	ID           int64     `json:"id"`
+	Username     string    `json:"username"`
+	Password     string    `json:"-"` // Never expose password in JSON
+	Email        string    `json:"email"`
+	Phone        string    `json:"phone"`
+	Role         string    `json:"role"` // admin, operator, viewer
+	Status       int       `json:"status"` // 1:active, 0:inactive
+	LastLoginAt  *time.Time `json:"last_login_at,omitempty"`
+	LastLoginIP  string    `json:"last_login_ip,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+// LoginRequest represents login request
+type LoginRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+	Captcha  string `json:"captcha"`
+	CaptchaID string `json:"captcha_id"`
+}
+
+// LoginResponse represents login response
+type LoginResponse struct {
+	Token     string    `json:"token"`
+	ExpiresAt time.Time `json:"expires_at"`
+	User      User      `json:"user"`
+}
+
+// Captcha represents a captcha challenge
+type Captcha struct {
+	ID        string    `json:"id"`
+	Image     string    `json:"image"` // base64 encoded image
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+// ChangePasswordRequest represents password change request
+type ChangePasswordRequest struct {
+	OldPassword string `json:"old_password"`
+	NewPassword string `json:"new_password"`
+}
+
+// CreateUserRequest represents create user request
+type CreateUserRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+	Email    string `json:"email"`
+	Phone    string `json:"phone"`
+	Role     string `json:"role"`
+}

@@ -58,6 +58,7 @@ func main() {
 	dashboardRepo := repository.NewDashboardRepository(db, logger)
 	aiModelRepo := repository.NewAIModelRepository(db, logger)
 	configRepo := repository.NewConfigRepository(db, logger)
+	userRepo := repository.NewUserRepository(db, logger)
 
 	// Initialize new config service and init config items
 	configService := service.NewConfigService(configRepo, logger)
@@ -87,19 +88,32 @@ func main() {
 	// Fallback to environment config if DB config not available
 	if aiAnalysisService == nil {
 		aiConfig := config.LoadAIConfigFromEnv()
-		aiAnalysisService, err = ai.NewAnalysisService(aiConfig, logger)
-		if err != nil {
-			logger.Warn("Failed to initialize AI service from env", zap.Error(err))
+		if aiConfig.Enabled && aiConfig.APIKey != "" {
+			aiAnalysisService, err = ai.NewAnalysisService(aiConfig, logger)
+			if err != nil {
+				logger.Warn("Failed to initialize AI service from env", zap.Error(err))
+			} else {
+				logger.Info("AI service initialized from environment config",
+					zap.String("provider", aiConfig.Provider),
+					zap.String("model", aiConfig.Model),
+				)
+			}
 		}
+	}
+
+	if aiAnalysisService == nil {
+		logger.Warn("AI service is not initialized - AI features will be unavailable")
 	}
 
 	// Initialize services
 	alertService := service.NewAlertService(alertRepo, clusterRepo, redisClient, logger)
 	ruleService := service.NewRuleService(ruleRepo, logger)
 	clusterService := service.NewClusterService(clusterRepo, redisClient, logger)
-	analysisService := service.NewAnalysisService(analysisRepo, alertRepo, clusterRepo, redisClient, logger, aiAnalysisService)
+	analysisService := service.NewAnalysisService(analysisRepo, alertRepo, clusterRepo, redisClient, logger, aiAnalysisService, aiModelService)
 	dashboardService := service.NewDashboardService(dashboardRepo, logger)
 	prometheusService := service.NewPrometheusService(clusterRepo, redisClient, logger)
+	authService := service.NewAuthService(userRepo, redisClient, logger)
+	userService := service.NewUserService(userRepo, authService, logger)
 
 	// Initialize controllers
 	alertController := controller.NewAlertController(alertService, logger)
@@ -110,6 +124,8 @@ func main() {
 	configController := controller.NewConfigController(configService, logger)
 	prometheusController := controller.NewPrometheusController(prometheusService, logger)
 	aiModelController := controller.NewAIModelController(aiModelService, logger)
+	authController := controller.NewAuthController(authService, userService, logger)
+	userController := controller.NewUserController(userService, logger)
 
 	// Setup router
 	router := gin.New()
@@ -117,6 +133,7 @@ func main() {
 	router.Use(middleware.Recovery(logger))
 	router.Use(middleware.CORS())
 	router.Use(middleware.NoCache())
+	router.Use(middleware.JWTAuth(authService))
 
 	// Prometheus metrics endpoint
 	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
@@ -129,6 +146,22 @@ func main() {
 	// API v1 routes
 	v1 := router.Group("/api/v1")
 	{
+		// Auth routes (public)
+		v1.GET("/auth/captcha", authController.GetCaptcha)
+		v1.POST("/auth/login", authController.Login)
+		v1.POST("/auth/logout", authController.Logout)
+		v1.GET("/auth/me", authController.GetCurrentUser)
+		v1.POST("/auth/change-password", authController.ChangePassword)
+		v1.POST("/auth/refresh", authController.RefreshToken)
+
+		// User management routes (admin only)
+		v1.GET("/users", middleware.RequireAdmin(), userController.ListUsers)
+		v1.GET("/users/:id", middleware.RequireAdmin(), userController.GetUser)
+		v1.POST("/users", middleware.RequireAdmin(), userController.CreateUser)
+		v1.PUT("/users/:id", middleware.RequireAdmin(), userController.UpdateUser)
+		v1.DELETE("/users/:id", middleware.RequireAdmin(), userController.DeleteUser)
+		v1.POST("/users/:id/reset-password", middleware.RequireAdmin(), userController.ResetPassword)
+
 		// Alerts
 		v1.GET("/alerts", alertController.GetAlerts)
 		v1.GET("/alerts/:id", alertController.GetAlert)

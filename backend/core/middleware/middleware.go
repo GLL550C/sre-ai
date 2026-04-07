@@ -1,6 +1,9 @@
 package middleware
 
 import (
+	"core/service"
+	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -85,4 +88,85 @@ func NoCache() gin.HandlerFunc {
 		c.Writer.Header().Set("Expires", "0")
 		c.Next()
 	}
+}
+
+// JWTAuth returns a gin middleware for JWT authentication
+func JWTAuth(authService *service.AuthService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// 跳过登录和验证码接口 (支持直接访问和通过gateway代理)
+		path := c.Request.URL.Path
+		if strings.HasPrefix(path, "/api/v1/auth/") || strings.HasPrefix(path, "/api/core/auth/") {
+			c.Next()
+			return
+		}
+
+		// 跳过健康检查和metrics端点（Prometheus监控需要）
+		if path == "/health" || path == "/metrics" {
+			c.Next()
+			return
+		}
+
+		// 跳过获取系统名称接口（登录页面需要显示）
+		if strings.Contains(path, "/config/items/app.name") {
+			c.Next()
+			return
+		}
+
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header required"})
+			c.Abort()
+			return
+		}
+
+		// Bearer token
+		parts := strings.SplitN(authHeader, " ", 2)
+		if !(len(parts) == 2 && parts[0] == "Bearer") {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid authorization header format"})
+			c.Abort()
+			return
+		}
+
+		user, err := authService.ParseToken(parts[1])
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
+			c.Abort()
+			return
+		}
+
+		// 将用户信息存入上下文
+		c.Set("userID", user.ID)
+		c.Set("username", user.Username)
+		c.Set("role", user.Role)
+
+		c.Next()
+	}
+}
+
+// RequireRole returns a gin middleware that requires specific role
+func RequireRole(roles ...string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		role, exists := c.Get("role")
+		if !exists {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Forbidden"})
+			c.Abort()
+			return
+		}
+
+		userRole := role.(string)
+		for _, r := range roles {
+			if userRole == r {
+				c.Next()
+				return
+			}
+		}
+
+		c.JSON(http.StatusForbidden, gin.H{"error": "Insufficient permissions"})
+		c.Abort()
+	}
+}
+
+// RequireAdmin returns a gin middleware that requires admin role
+func RequireAdmin() gin.HandlerFunc {
+	return RequireRole("admin")
 }

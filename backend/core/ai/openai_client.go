@@ -378,7 +378,7 @@ func NewClientFactory(config *ClientConfig) *ClientFactory {
 // CreateClient creates an AI client based on configuration
 func (f *ClientFactory) CreateClient() (Client, error) {
 	switch f.config.Provider {
-	case "openai", "azure":
+	case "openai", "azure", "custom":
 		return NewOpenAIClient(f.config.APIKey, f.config.BaseURL, f.config.Model, f.config.Timeout), nil
 	case "claude", "anthropic":
 		return NewClaudeClient(f.config.APIKey, f.config.BaseURL, f.config.Model, f.config.Timeout), nil

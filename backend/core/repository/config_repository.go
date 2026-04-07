@@ -38,12 +38,8 @@ func (r *ConfigRepository) InitConfigItems() error {
 	// 定义所有配置项
 	items := []model.ConfigItem{
 		// ========== Platform Settings ==========
-		// 基础配置
-		{Category: "platform", SubCategory: "basic", Key: "app.name", Value: "SRE AI Platform", Type: "string", Required: true, Description: "应用名称", SortOrder: 1, Icon: "AppstoreOutlined"},
-		{Category: "platform", SubCategory: "basic", Key: "app.version", Value: "1.0.0", Type: "string", Required: true, Description: "应用版本", SortOrder: 2, Icon: "TagOutlined"},
-		{Category: "platform", SubCategory: "basic", Key: "app.logo", Value: "", Type: "string", Description: "Logo URL", SortOrder: 3, Icon: "PictureOutlined"},
-		{Category: "platform", SubCategory: "basic", Key: "app.timezone", Value: "Asia/Shanghai", Type: "string", Options: `["UTC","Asia/Shanghai","Asia/Tokyo","America/New_York"]`, Description: "默认时区", SortOrder: 4, Icon: "ClockCircleOutlined"},
-		{Category: "platform", SubCategory: "basic", Key: "app.language", Value: "zh-CN", Type: "string", Options: `["zh-CN","en-US","ja-JP"]`, Description: "默认语言", SortOrder: 5, Icon: "GlobalOutlined"},
+		// 基础配置 - 只保留系统名称
+		{Category: "platform", SubCategory: "basic", Key: "app.name", Value: "SRE AI Platform", Type: "string", Required: true, Description: "系统名称", SortOrder: 1, Icon: "AppstoreOutlined"},
 
 		// 系统配置
 		{Category: "platform", SubCategory: "system", Key: "system.session_timeout", Value: "1440", Type: "number", Required: true, Description: "会话超时时间(分钟)", SortOrder: 1, Icon: "FieldTimeOutlined"},

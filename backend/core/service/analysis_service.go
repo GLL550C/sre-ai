@@ -20,12 +20,13 @@ import (
 
 // AnalysisService handles AI analysis business logic
 type AnalysisService struct {
-	analysisRepo *repository.AnalysisRepository
-	alertRepo    *repository.AlertRepository
-	clusterRepo  *repository.ClusterRepository
-	redisClient  *redis.Client
-	logger       *zap.Logger
-	aiService    *ai.AnalysisService
+	analysisRepo   *repository.AnalysisRepository
+	alertRepo      *repository.AlertRepository
+	clusterRepo    *repository.ClusterRepository
+	redisClient    *redis.Client
+	logger         *zap.Logger
+	aiService      *ai.AnalysisService
+	aiModelService *AIModelService // 用于动态重新初始化AI服务
 }
 
 // NewAnalysisService creates a new analysis service
@@ -36,15 +37,48 @@ func NewAnalysisService(
 	redisClient *redis.Client,
 	logger *zap.Logger,
 	aiService *ai.AnalysisService,
+	aiModelService *AIModelService,
 ) *AnalysisService {
 	return &AnalysisService{
-		analysisRepo: analysisRepo,
-		alertRepo:    alertRepo,
-		clusterRepo:  clusterRepo,
-		redisClient:  redisClient,
-		logger:       logger,
-		aiService:    aiService,
+		analysisRepo:   analysisRepo,
+		alertRepo:      alertRepo,
+		clusterRepo:    clusterRepo,
+		redisClient:    redisClient,
+		logger:         logger,
+		aiService:      aiService,
+		aiModelService: aiModelService,
 	}
+}
+
+// initAIService 尝试动态初始化AI服务
+func (s *AnalysisService) initAIService() error {
+	if s.aiModelService == nil {
+		return fmt.Errorf("AI model service not configured")
+	}
+
+	// 从数据库获取活跃配置
+	aiModelConfig, err := s.aiModelService.GetActiveConfig()
+	if err != nil {
+		return fmt.Errorf("failed to get active AI config: %w", err)
+	}
+
+	if aiModelConfig == nil || !aiModelConfig.IsEnabled {
+		return fmt.Errorf("no active AI model configured or model is disabled")
+	}
+
+	// 构建配置并创建服务
+	aiConfig := s.aiModelService.BuildAIConfigFromModel(aiModelConfig)
+	aiService, err := ai.NewAnalysisService(aiConfig, s.logger)
+	if err != nil {
+		return fmt.Errorf("failed to create AI service: %w", err)
+	}
+
+	s.aiService = aiService
+	s.logger.Info("AI service dynamically initialized",
+		zap.String("provider", aiModelConfig.Provider),
+		zap.String("model", aiModelConfig.Model),
+	)
+	return nil
 }
 
 // GetAnalysis retrieves AI analysis results with filters
@@ -867,34 +901,48 @@ func (s *AnalysisService) RunScheduledAnalysis() {
 
 // Chat performs conversational chat with AI
 func (s *AnalysisService) Chat(ctx context.Context, messages []ai.Message) (*ai.ChatResponse, error) {
+	// 如果AI服务未初始化，尝试动态初始化
 	if s.aiService == nil || !s.aiService.IsEnabled() {
-		return nil, fmt.Errorf("AI service is not available")
+		if err := s.initAIService(); err != nil {
+			s.logger.Warn("Failed to initialize AI service dynamically", zap.Error(err))
+			return nil, fmt.Errorf("AI service is not available. Please configure and enable an AI model first")
+		}
 	}
 	return s.aiService.Chat(ctx, messages)
 }
 
 // ChatStream performs streaming chat with AI
 func (s *AnalysisService) ChatStream(ctx context.Context, messages []ai.Message) (<-chan ai.StreamResponse, error) {
+	// 如果AI服务未初始化，尝试动态初始化
 	if s.aiService == nil || !s.aiService.IsEnabled() {
-		return nil, fmt.Errorf("AI service is not available")
+		if err := s.initAIService(); err != nil {
+			s.logger.Warn("Failed to initialize AI service dynamically", zap.Error(err))
+			return nil, fmt.Errorf("AI service is not available")
+		}
 	}
 	return s.aiService.ChatStream(ctx, messages)
 }
 
 // AIHealth checks AI service health
 func (s *AnalysisService) AIHealth() error {
+	// 如果AI服务未初始化，尝试动态初始化
 	if s.aiService == nil {
-		return fmt.Errorf("AI service is not initialized")
+		if err := s.initAIService(); err != nil {
+			return fmt.Errorf("AI service is not initialized: %w", err)
+		}
 	}
 	return s.aiService.Health()
 }
 
 // AIModelInfo returns AI model information
 func (s *AnalysisService) AIModelInfo() map[string]interface{} {
+	// 如果AI服务未初始化，尝试动态初始化
 	if s.aiService == nil {
-		return map[string]interface{}{
-			"enabled": false,
-			"error":   "AI service is not initialized",
+		if err := s.initAIService(); err != nil {
+			return map[string]interface{}{
+				"enabled": false,
+				"error":   "AI service is not initialized: " + err.Error(),
+			}
 		}
 	}
 	return s.aiService.GetModelInfo()

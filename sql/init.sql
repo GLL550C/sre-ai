@@ -1,5 +1,23 @@
 -- SRE AI Platform Database Schema
 
+-- 用户表
+CREATE TABLE IF NOT EXISTS users (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(100) NOT NULL UNIQUE COMMENT '用户名',
+    password VARCHAR(255) NOT NULL COMMENT '加密密码',
+    email VARCHAR(255) COMMENT '邮箱',
+    phone VARCHAR(50) COMMENT '手机号',
+    role ENUM('admin', 'operator', 'viewer') DEFAULT 'viewer' COMMENT '角色: admin管理员, operator运维, viewer访客',
+    status INT DEFAULT 1 COMMENT '1:active, 0:inactive',
+    last_login_at TIMESTAMP NULL COMMENT '最后登录时间',
+    last_login_ip VARCHAR(50) COMMENT '最后登录IP',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_username (username),
+    INDEX idx_role (role),
+    INDEX idx_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- 配置项定义表(新配置中心)
 CREATE TABLE IF NOT EXISTS config_items (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -234,3 +252,7 @@ INSERT INTO runbooks (title, alert_name, severity, content, steps, related_alert
 INSERT INTO tenants (name, code, description, config, clusters, status) VALUES
 ('Default Tenant', 'default', 'Default system tenant', '{"timezone": "UTC", "language": "en"}', '[1]', 1),
 ('Production', 'production', 'Production environment', '{"timezone": "UTC", "language": "en"}', '[1]', 1);
+
+-- 插入默认管理员账号 (密码: sreAdmin550c, bcrypt加密)
+INSERT INTO users (username, password, email, phone, role, status, created_at, updated_at) VALUES
+('admin', '$2a$10$3EYxcEI2rQAE7oSWBwmVOej.K/VmxfZJpjlXrGWDt5.IyhJegQbPS', 'admin@sre.ai', '13800138000', 'admin', 1, NOW(), NOW());
