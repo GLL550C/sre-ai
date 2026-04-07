@@ -22,6 +22,8 @@ import {
   Empty,
   Modal,
   Spin,
+  Divider,
+  Alert,
 } from 'antd';
 import {
   SettingOutlined,
@@ -38,6 +40,10 @@ import {
   PlusOutlined,
   EditOutlined,
   DeleteOutlined,
+  EditFilled,
+  CheckOutlined,
+  CloseOutlined,
+  AppstoreOutlined,
 } from '@ant-design/icons';
 import {
   getConfigItems,
@@ -56,7 +62,7 @@ import {
   setDefaultCluster,
 } from '../services/api';
 
-const { Text } = Typography;
+const { Text, Title } = Typography;
 const { Option } = Select;
 const { TextArea } = Input;
 
@@ -73,7 +79,7 @@ const CATEGORY_CONFIG = {
     },
   },
   ai: {
-    label: 'AI智能',
+    label: 'AI模型配置',
     icon: <RobotOutlined />,
     color: '#722ed1',
     subs: {
@@ -112,6 +118,10 @@ const ConfigCenter = ({ darkMode }) => {
   const [form] = Form.useForm();
   const [aiConfigs, setAiConfigs] = useState([]);
   const [clusters, setClusters] = useState([]);
+  // 系统名称编辑状态
+  const [systemName, setSystemName] = useState('');
+  const [editingSystemName, setEditingSystemName] = useState(false);
+  const [systemNameInput, setSystemNameInput] = useState('');
 
   // 根据 URL 参数初始化分类
   useEffect(() => {
@@ -142,6 +152,14 @@ const ConfigCenter = ({ darkMode }) => {
         initialValues[item.key] = item.value;
       });
       form.setFieldsValue(initialValues);
+      // 如果是基础配置页面，加载系统名称
+      if (cat === 'platform' && subCategory === 'basic') {
+        const nameItem = res.data?.data?.find(item => item.key === 'app.name');
+        if (nameItem) {
+          setSystemName(nameItem.value);
+          setSystemNameInput(nameItem.value);
+        }
+      }
     } catch (error) {
       message.error('获取配置失败');
     } finally {
@@ -182,6 +200,42 @@ const ConfigCenter = ({ darkMode }) => {
 
   const handleSubTabChange = (key) => {
     setSelectedCategory([category, key]);
+    // 清除编辑状态
+    setEditingSystemName(false);
+  };
+
+  // 处理系统名称编辑
+  const handleEditSystemName = () => {
+    setEditingSystemName(true);
+    setSystemNameInput(systemName);
+  };
+
+  // 保存系统名称
+  const handleSaveSystemName = async () => {
+    if (!systemNameInput.trim()) {
+      message.error('系统名称不能为空');
+      return;
+    }
+    try {
+      await updateConfigValue('app.name', systemNameInput.trim());
+      setSystemName(systemNameInput.trim());
+      setEditingSystemName(false);
+      message.success('系统名称已更新');
+      // 更新本地存储，通知其他组件
+      localStorage.setItem('systemName', systemNameInput.trim());
+      // 触发自定义事件通知其他组件刷新
+      window.dispatchEvent(new CustomEvent('systemNameChanged', {
+        detail: { name: systemNameInput.trim() }
+      }));
+    } catch (error) {
+      message.error('保存失败');
+    }
+  };
+
+  // 取消编辑系统名称
+  const handleCancelEditSystemName = () => {
+    setEditingSystemName(false);
+    setSystemNameInput(systemName);
   };
 
   const renderConfigItem = (item) => {
@@ -324,6 +378,72 @@ const ConfigCenter = ({ darkMode }) => {
             </Space>
           }
         >
+          {/* 系统名称特殊编辑区域 - 只在基础配置页面显示 */}
+          {selectedCategory[0] === 'platform' && selectedCategory[1] === 'basic' && (
+            <>
+              <Alert
+                message={
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+                      <AppstoreOutlined style={{ fontSize: 24, marginRight: 12, color: '#1890ff' }} />
+                      <div>
+                        <Title level={5} style={{ margin: 0 }}>系统名称</Title>
+                        <Text type="secondary">设置平台的显示名称，将显示在登录页和侧边栏</Text>
+                      </div>
+                    </div>
+                    <div style={{ marginTop: 16, padding: '12px 16px', background: darkMode ? '#141414' : '#f5f5f5', borderRadius: 8 }}>
+                      {editingSystemName ? (
+                        <Space style={{ width: '100%' }}>
+                          <Input
+                            value={systemNameInput}
+                            onChange={(e) => setSystemNameInput(e.target.value)}
+                            placeholder="请输入系统名称"
+                            style={{ width: 300 }}
+                            maxLength={50}
+                            showCount
+                            autoFocus
+                            onPressEnter={handleSaveSystemName}
+                          />
+                          <Button
+                            type="primary"
+                            icon={<CheckOutlined />}
+                            onClick={handleSaveSystemName}
+                          >
+                            保存
+                          </Button>
+                          <Button
+                            icon={<CloseOutlined />}
+                            onClick={handleCancelEditSystemName}
+                          >
+                            取消
+                          </Button>
+                        </Space>
+                      ) : (
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <div>
+                            <Text strong style={{ fontSize: 18 }}>{systemName || 'SRE AI Platform'}</Text>
+                            <Tag color="blue" style={{ marginLeft: 12 }}>当前名称</Tag>
+                          </div>
+                          <Button
+                            type="primary"
+                            icon={<EditFilled />}
+                            onClick={handleEditSystemName}
+                          >
+                            修改系统名称
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                }
+                type="info"
+                showIcon={false}
+                style={{ marginBottom: 24, borderRadius: 8 }}
+              />
+              <Divider style={{ margin: '24px 0' }} />
+            </>
+          )}
+
           {selectedCategory[0] === 'ai' && selectedCategory[1] === 'models' ? (
             <AiModelConfigList
               configs={aiConfigs}
@@ -343,7 +463,10 @@ const ConfigCenter = ({ darkMode }) => {
               onValuesChange={handleValuesChange}
               style={{ maxWidth: 800 }}
             >
-              {configItems.map((item) => renderConfigItem(item))}
+              {/* 在基础配置页面，过滤掉app.name，因为已经在上面单独显示 */}
+              {configItems
+                .filter(item => !(selectedCategory[0] === 'platform' && selectedCategory[1] === 'basic' && item.key === 'app.name'))
+                .map((item) => renderConfigItem(item))}
 
               {configItems.length === 0 && (
                 <Empty description="暂无配置项" image={Empty.PRESENTED_IMAGE_SIMPLE} />

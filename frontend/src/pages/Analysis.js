@@ -55,6 +55,7 @@ import {
   chatWithAI,
   getAIHealth,
   getAIModelInfo,
+  getConfigValue,
 } from '../services/api';
 
 const { Title, Text, Paragraph } = Typography;
@@ -87,11 +88,13 @@ const Analysis = ({ darkMode }) => {
   const [chatLoading, setChatLoading] = useState(false);
   const [aiEnabled, setAiEnabled] = useState(false);
   const [aiModelInfo, setAiModelInfo] = useState(null);
+  const [systemName, setSystemName] = useState('SRE AI');
   const chatEndRef = useRef(null);
 
   useEffect(() => {
     fetchData();
     checkAIStatus();
+    fetchSystemName();
   }, [filters]);
 
   useEffect(() => {
@@ -131,6 +134,18 @@ const Analysis = ({ darkMode }) => {
       setAiModelInfo(modelRes.data?.data);
     } catch (error) {
       setAiEnabled(false);
+    }
+  };
+
+  // 从后端获取系统名称
+  const fetchSystemName = async () => {
+    try {
+      const res = await getConfigValue('app.name');
+      if (res.data?.data?.value) {
+        setSystemName(res.data.data.value);
+      }
+    } catch (error) {
+      console.error('Failed to fetch system name:', error);
     }
   };
 
@@ -195,7 +210,7 @@ const Analysis = ({ darkMode }) => {
       setChatMessages([
         {
           role: 'assistant',
-          content: 'Hello! I am your SRE AI assistant. I can help you analyze system issues, troubleshoot problems, and provide recommendations. How can I help you today?',
+          content: `Hello! I am your ${systemName} assistant. I can help you analyze system issues, troubleshoot problems, and provide recommendations. How can I help you today?`,
           timestamp: new Date().toISOString(),
         },
       ]);
@@ -412,7 +427,7 @@ const Analysis = ({ darkMode }) => {
       >
         <h2 style={{ margin: 0, color: darkMode ? '#fff' : '#1d1d1f' }}>
           <RobotOutlined style={{ marginRight: '8px' }} />
-          AI Analysis
+          AI分析
         </h2>
         <Space>
           <Button icon={<ReloadOutlined />} onClick={fetchData}>

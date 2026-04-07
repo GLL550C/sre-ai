@@ -164,7 +164,7 @@ const Alerts = ({ darkMode }) => {
     <div>
       <h2 style={{ marginBottom: '24px', color: darkMode ? '#fff' : '#1d1d1f' }}>
         <AlertOutlined style={{ marginRight: '8px' }} />
-        Alerts
+        告警通知
       </h2>
 
       <Card

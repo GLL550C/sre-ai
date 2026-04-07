@@ -98,7 +98,7 @@ const Dashboard = ({ darkMode }) => {
     <div>
       <h2 style={{ marginBottom: '24px', color: darkMode ? '#fff' : '#1d1d1f' }}>
         <DashboardOutlined style={{ marginRight: '8px' }} />
-        Dashboard
+        首页
       </h2>
 
       <Row gutter={[24, 24]}>
