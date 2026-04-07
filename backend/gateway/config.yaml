@@ -1,0 +1,22 @@
+server:
+  port: "8080"
+  read_timeout: 30
+  write_timeout: 30
+
+log:
+  level: "info"
+  format: "json"
+  output_path: "stdout"
+
+redis:
+  addr: "localhost:6379"
+  password: ""
+  db: 0
+
+services:
+  core:
+    url: "http://localhost:8081"
+  runbook:
+    url: "http://localhost:8082"
+  tenant:
+    url: "http://localhost:8083"

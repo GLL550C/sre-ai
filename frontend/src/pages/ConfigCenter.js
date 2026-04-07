@@ -1,0 +1,737 @@
+import React, { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import {
+  Card,
+  Form,
+  Input,
+  InputNumber,
+  Select,
+  Switch,
+  Button,
+  message,
+  Typography,
+  Space,
+  Tag,
+  Tooltip,
+  Tabs,
+  Table,
+  Popconfirm,
+  Badge,
+  Row,
+  Col,
+  Empty,
+  Modal,
+  Spin,
+} from 'antd';
+import {
+  SettingOutlined,
+  RobotOutlined,
+  DashboardOutlined,
+  ApiOutlined,
+  BellOutlined,
+  ToolOutlined,
+  InfoCircleOutlined,
+  ThunderboltOutlined,
+  MessageOutlined,
+  SafetyOutlined,
+  GlobalOutlined,
+  PlusOutlined,
+  EditOutlined,
+  DeleteOutlined,
+} from '@ant-design/icons';
+import {
+  getConfigItems,
+  updateConfigValue,
+  getAIModelConfigs,
+  createAIModelConfig,
+  updateAIModelConfig,
+  deleteAIModelConfig,
+  testAIModelConfig,
+  setDefaultAIModelConfig,
+  getClusters,
+  createCluster,
+  updateCluster,
+  deleteCluster,
+  testCluster,
+  setDefaultCluster,
+} from '../services/api';
+
+const { Text } = Typography;
+const { Option } = Select;
+const { TextArea } = Input;
+
+// 分类配置
+const CATEGORY_CONFIG = {
+  platform: {
+    label: '平台设置',
+    icon: <SettingOutlined />,
+    color: '#1890ff',
+    subs: {
+      basic: { label: '基础配置', icon: <InfoCircleOutlined /> },
+      system: { label: '系统配置', icon: <ToolOutlined /> },
+      notification: { label: '通知配置', icon: <BellOutlined /> },
+    },
+  },
+  ai: {
+    label: 'AI智能',
+    icon: <RobotOutlined />,
+    color: '#722ed1',
+    subs: {
+      models: { label: '模型配置', icon: <ThunderboltOutlined /> },
+      strategy: { label: '分析策略', icon: <DashboardOutlined /> },
+      chat: { label: '对话设置', icon: <MessageOutlined /> },
+    },
+  },
+  monitoring: {
+    label: '监控告警',
+    icon: <DashboardOutlined />,
+    color: '#52c41a',
+    subs: {
+      prometheus: { label: 'Prometheus', icon: <GlobalOutlined /> },
+      alert: { label: '告警配置', icon: <BellOutlined /> },
+    },
+  },
+  integration: {
+    label: '集成',
+    icon: <ApiOutlined />,
+    color: '#fa8c16',
+    subs: {
+      sso: { label: '单点登录', icon: <SafetyOutlined /> },
+      api: { label: 'API设置', icon: <ApiOutlined /> },
+      webhook: { label: 'Webhook', icon: <ThunderboltOutlined /> },
+    },
+  },
+};
+
+const ConfigCenter = ({ darkMode }) => {
+  const { category } = useParams();
+  const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState(['platform', 'basic']);
+  const [configItems, setConfigItems] = useState([]);
+  const [form] = Form.useForm();
+  const [aiConfigs, setAiConfigs] = useState([]);
+  const [clusters, setClusters] = useState([]);
+
+  // 根据 URL 参数初始化分类
+  useEffect(() => {
+    if (category && CATEGORY_CONFIG[category]) {
+      const firstSubKey = Object.keys(CATEGORY_CONFIG[category].subs)[0];
+      setSelectedCategory([category, firstSubKey]);
+    } else {
+      navigate('/config/platform');
+    }
+  }, [category, navigate]);
+
+  useEffect(() => {
+    if (selectedCategory[0]) {
+      fetchConfigItems();
+      fetchAiConfigs();
+      fetchClusters();
+    }
+  }, [selectedCategory]);
+
+  const fetchConfigItems = async () => {
+    try {
+      setLoading(true);
+      const [cat, subCategory] = selectedCategory;
+      const res = await getConfigItems(cat, subCategory);
+      setConfigItems(res.data?.data || []);
+      const initialValues = {};
+      res.data?.data?.forEach((item) => {
+        initialValues[item.key] = item.value;
+      });
+      form.setFieldsValue(initialValues);
+    } catch (error) {
+      message.error('获取配置失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchAiConfigs = async () => {
+    try {
+      const res = await getAIModelConfigs();
+      setAiConfigs(res.data?.data || []);
+    } catch (error) {
+      console.error('获取AI配置失败', error);
+    }
+  };
+
+  const fetchClusters = async () => {
+    try {
+      const res = await getClusters();
+      setClusters(res.data?.data || []);
+    } catch (error) {
+      console.error('获取集群配置失败', error);
+    }
+  };
+
+  // 自动保存 - 当值改变时自动保存
+  const handleValuesChange = async (changed) => {
+    const key = Object.keys(changed)[0];
+    const value = changed[key];
+
+    try {
+      await updateConfigValue(key, value);
+      message.success('配置已自动保存');
+    } catch (error) {
+      message.error('保存失败');
+    }
+  };
+
+  const handleSubTabChange = (key) => {
+    setSelectedCategory([category, key]);
+  };
+
+  const renderConfigItem = (item) => {
+    const commonProps = {
+      key: item.key,
+      name: item.key,
+      label: (
+        <Space>
+          <Text strong>{item.description}</Text>
+          {item.required && <Tag color="red">必填</Tag>}
+          {item.sensitive && <Tag color="orange">敏感</Tag>}
+        </Space>
+      ),
+    };
+
+    switch (item.type) {
+      case 'string':
+        return (
+          <Form.Item {...commonProps}>
+            <Input placeholder={`请输入${item.description}`} />
+          </Form.Item>
+        );
+      case 'number':
+        return (
+          <Form.Item {...commonProps}>
+            <InputNumber style={{ width: '100%' }} />
+          </Form.Item>
+        );
+      case 'boolean':
+        return (
+          <Form.Item {...commonProps} valuePropName="checked">
+            <Switch checkedChildren="开启" unCheckedChildren="关闭" />
+          </Form.Item>
+        );
+      case 'password':
+        return (
+          <Form.Item {...commonProps}>
+            <Input.Password placeholder={`请输入${item.description}`} />
+          </Form.Item>
+        );
+      case 'json':
+        return (
+          <Form.Item {...commonProps}>
+            <TextArea rows={4} placeholder={`请输入JSON格式的${item.description}`} />
+          </Form.Item>
+        );
+      default:
+        if (item.options) {
+          const options = JSON.parse(item.options);
+          return (
+            <Form.Item {...commonProps}>
+              <Select placeholder={`请选择${item.description}`}>
+                {options.map((opt) => (
+                  <Option key={opt} value={opt}>
+                    {opt}
+                  </Option>
+                ))}
+              </Select>
+            </Form.Item>
+          );
+        }
+        return (
+          <Form.Item {...commonProps}>
+            <Input placeholder={`请输入${item.description}`} />
+          </Form.Item>
+        );
+    }
+  };
+
+  const cardStyle = {
+    borderRadius: '16px',
+    boxShadow: darkMode ? '0 4px 20px rgba(0, 0, 0, 0.3)' : '0 4px 20px rgba(0, 0, 0, 0.08)',
+    background: darkMode ? '#1f1f1f' : '#fff',
+  };
+
+  const currentCategory = CATEGORY_CONFIG[selectedCategory[0]];
+  const currentSubCategory = currentCategory?.subs[selectedCategory[1]];
+
+  // 构建子 Tab 项
+  const subTabItems = currentCategory
+    ? Object.entries(currentCategory.subs).map(([subKey, sub]) => ({
+        key: subKey,
+        label: (
+          <span>
+            {sub.icon}
+            <span style={{ marginLeft: 6 }}>{sub.label}</span>
+          </span>
+        ),
+      }))
+    : [];
+
+  return (
+    <div>
+      {/* 页面标题 */}
+      <div style={{ marginBottom: '24px' }}>
+        <h2 style={{ margin: 0, color: darkMode ? '#fff' : '#1d1d1f' }}>
+          <SettingOutlined style={{ marginRight: '8px' }} />
+          配置中心
+          {currentCategory && (
+            <>
+              <span style={{ margin: '0 12px', color: '#999' }}>/</span>
+              <span style={{ color: currentCategory.color }}>
+                {currentCategory.icon}
+                <span style={{ marginLeft: 8 }}>{currentCategory.label}</span>
+              </span>
+            </>
+          )}
+        </h2>
+      </div>
+
+      {/* 子分类 Tabs */}
+      {subTabItems.length > 0 && (
+        <Card style={{ ...cardStyle, marginBottom: 16 }} bodyStyle={{ padding: '16px 24px' }}>
+          <Tabs
+            activeKey={selectedCategory[1]}
+            onChange={handleSubTabChange}
+            items={subTabItems}
+            type="line"
+            size="middle"
+          />
+        </Card>
+      )}
+
+      {/* 配置内容区域 */}
+      <Spin spinning={loading}>
+        <Card
+          style={{
+            ...cardStyle,
+            minHeight: 'calc(100vh - 320px)',
+          }}
+          title={
+            <Space>
+              {currentSubCategory?.icon}
+              <span>{currentSubCategory?.label}</span>
+            </Space>
+          }
+          extra={
+            <Space>
+              <Text type="secondary">{configItems.length} 项配置</Text>
+            </Space>
+          }
+        >
+          {selectedCategory[0] === 'ai' && selectedCategory[1] === 'models' ? (
+            <AiModelConfigList
+              configs={aiConfigs}
+              onRefresh={fetchAiConfigs}
+              darkMode={darkMode}
+            />
+          ) : selectedCategory[0] === 'monitoring' && selectedCategory[1] === 'prometheus' ? (
+            <PrometheusClusterList
+              configs={clusters}
+              onRefresh={fetchClusters}
+              darkMode={darkMode}
+            />
+          ) : (
+            <Form
+              form={form}
+              layout="vertical"
+              onValuesChange={handleValuesChange}
+              style={{ maxWidth: 800 }}
+            >
+              {configItems.map((item) => renderConfigItem(item))}
+
+              {configItems.length === 0 && (
+                <Empty description="暂无配置项" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              )}
+            </Form>
+          )}
+        </Card>
+      </Spin>
+    </div>
+  );
+};
+
+// AI模型配置列表组件
+const AiModelConfigList = ({ configs, onRefresh, darkMode }) => {
+  const [modalVisible, setModalVisible] = useState(false);
+  const [editingConfig, setEditingConfig] = useState(null);
+  const [form] = Form.useForm();
+  const [testingId, setTestingId] = useState(null);
+
+  const handleCreate = () => {
+    setEditingConfig(null);
+    form.resetFields();
+    form.setFieldsValue({
+      provider: 'openai',
+      max_tokens: 4000,
+      temperature: 0.7,
+      timeout: 60,
+      is_enabled: true,
+      is_default: false,
+    });
+    setModalVisible(true);
+  };
+
+  const handleEdit = (record) => {
+    setEditingConfig(record);
+    form.setFieldsValue({ ...record });
+    setModalVisible(true);
+  };
+
+  const handleDelete = async (id) => {
+    try {
+      await deleteAIModelConfig(id);
+      message.success('删除成功');
+      onRefresh();
+    } catch (error) {
+      message.error('删除失败');
+    }
+  };
+
+  const handleTest = async (id) => {
+    try {
+      setTestingId(id);
+      const res = await testAIModelConfig(id);
+      if (res.data?.success) {
+        message.success(res.data?.message || '连接成功');
+      } else {
+        message.error(res.data?.message || '连接失败');
+      }
+    } catch (error) {
+      message.error('测试失败');
+    } finally {
+      setTestingId(null);
+    }
+  };
+
+  const handleSetDefault = async (id) => {
+    try {
+      await setDefaultAIModelConfig(id);
+      message.success('已设为默认');
+      onRefresh();
+    } catch (error) {
+      message.error('设置失败');
+    }
+  };
+
+  const handleSubmit = async (values) => {
+    try {
+      if (editingConfig) {
+        await updateAIModelConfig(editingConfig.id, values);
+        message.success('更新成功');
+      } else {
+        await createAIModelConfig(values);
+        message.success('创建成功');
+      }
+      setModalVisible(false);
+      onRefresh();
+    } catch (error) {
+      message.error(editingConfig ? '更新失败' : '创建失败');
+    }
+  };
+
+  const columns = [
+    {
+      title: '名称',
+      dataIndex: 'name',
+      render: (text, record) => (
+        <Space>
+          {text}
+          {record.is_default && <Tag color="gold">默认</Tag>}
+          {!record.is_enabled && <Tag>已禁用</Tag>}
+        </Space>
+      ),
+    },
+    { title: '提供商', dataIndex: 'provider' },
+    { title: '模型', dataIndex: 'model' },
+    {
+      title: '状态',
+      render: (_, record) => (
+        <Badge status={record.is_enabled ? 'success' : 'error'} text={record.is_enabled ? '启用' : '禁用'} />
+      ),
+    },
+    {
+      title: '操作',
+      width: 280,
+      render: (_, record) => (
+        <Space>
+          <Button size="small" loading={testingId === record.id} onClick={() => handleTest(record.id)}>
+            测试
+          </Button>
+          {!record.is_default && (
+            <Button size="small" onClick={() => handleSetDefault(record.id)}>
+              设为默认
+            </Button>
+          )}
+          <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
+            编辑
+          </Button>
+          <Popconfirm title="确定删除?" onConfirm={() => handleDelete(record.id)}>
+            <Button size="small" danger icon={<DeleteOutlined />}>
+              删除
+            </Button>
+          </Popconfirm>
+        </Space>
+      ),
+    },
+  ];
+
+  return (
+    <div>
+      <div style={{ marginBottom: '16px' }}>
+        <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
+          添加模型配置
+        </Button>
+      </div>
+      <Table columns={columns} dataSource={configs} rowKey="id" pagination={false} />
+
+      <Modal
+        title={editingConfig ? '编辑模型配置' : '添加模型配置'}
+        open={modalVisible}
+        onCancel={() => setModalVisible(false)}
+        onOk={() => form.submit()}
+        width={700}
+      >
+        <Form form={form} layout="vertical" onFinish={handleSubmit}>
+          <Form.Item name="name" label="配置名称" rules={[{ required: true }]}>
+            <Input placeholder="例如: OpenAI GPT-4" />
+          </Form.Item>
+          <Form.Item name="provider" label="提供商" rules={[{ required: true }]}>
+            <Select>
+              <Option value="openai">OpenAI</Option>
+              <Option value="claude">Claude</Option>
+              <Option value="azure">Azure OpenAI</Option>
+              <Option value="custom">自定义</Option>
+            </Select>
+          </Form.Item>
+          <Form.Item name="model" label="模型" rules={[{ required: true }]}>
+            <Input placeholder="例如: gpt-4, claude-3-opus" />
+          </Form.Item>
+          <Form.Item name="api_key" label="API Key" rules={[{ required: true }]}>
+            <Input.Password placeholder="输入API Key" />
+          </Form.Item>
+          <Form.Item name="base_url" label="Base URL (可选)">
+            <Input placeholder="例如: https://api.openai.com/v1" />
+          </Form.Item>
+          <Row gutter={16}>
+            <Col span={8}>
+              <Form.Item name="max_tokens" label="Max Tokens">
+                <InputNumber min={1} max={32000} style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="temperature" label="Temperature">
+                <InputNumber min={0} max={2} step={0.1} style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="timeout" label="超时(秒)">
+                <InputNumber min={1} max={300} style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item name="is_enabled" valuePropName="checked" label="启用">
+                <Switch />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="is_default" valuePropName="checked" label="设为默认">
+                <Switch />
+              </Form.Item>
+            </Col>
+          </Row>
+        </Form>
+      </Modal>
+    </div>
+  );
+};
+
+// Prometheus集群配置列表组件
+const PrometheusClusterList = ({ configs, onRefresh, darkMode }) => {
+  const [modalVisible, setModalVisible] = useState(false);
+  const [editingConfig, setEditingConfig] = useState(null);
+  const [form] = Form.useForm();
+  const [testingId, setTestingId] = useState(null);
+
+  const handleCreate = () => {
+    setEditingConfig(null);
+    form.resetFields();
+    form.setFieldsValue({
+      status: 1,
+      is_default: false,
+    });
+    setModalVisible(true);
+  };
+
+  const handleEdit = (record) => {
+    setEditingConfig(record);
+    form.setFieldsValue({
+      name: record.name,
+      url: record.url,
+      status: record.status,
+      is_default: record.is_default,
+    });
+    setModalVisible(true);
+  };
+
+  const handleDelete = async (id) => {
+    try {
+      await deleteCluster(id);
+      message.success('删除成功');
+      onRefresh();
+    } catch (error) {
+      message.error('删除失败');
+    }
+  };
+
+  const handleTest = async (id) => {
+    try {
+      setTestingId(id);
+      const res = await testCluster(id);
+      if (res.data?.success) {
+        message.success(res.data?.message || '连接成功');
+      } else {
+        message.error(res.data?.message || '连接失败');
+      }
+    } catch (error) {
+      message.error('测试失败');
+    } finally {
+      setTestingId(null);
+    }
+  };
+
+  const handleSetDefault = async (id) => {
+    try {
+      await setDefaultCluster(id);
+      message.success('已设为默认集群');
+      onRefresh();
+    } catch (error) {
+      message.error('设置失败');
+    }
+  };
+
+  const handleSubmit = async (values) => {
+    try {
+      if (editingConfig) {
+        await updateCluster(editingConfig.id, values);
+        message.success('更新成功');
+      } else {
+        await createCluster(values);
+        message.success('创建成功');
+      }
+      setModalVisible(false);
+      onRefresh();
+    } catch (error) {
+      message.error(editingConfig ? '更新失败' : '创建失败');
+    }
+  };
+
+  const columns = [
+    {
+      title: '名称',
+      dataIndex: 'name',
+      render: (text, record) => (
+        <Space>
+          {text}
+          {record.is_default && <Tag color="gold">默认</Tag>}
+        </Space>
+      ),
+    },
+    {
+      title: 'URL',
+      dataIndex: 'url',
+      ellipsis: true,
+    },
+    {
+      title: '健康状态',
+      dataIndex: 'status',
+      render: (status) => (
+        <Badge
+          status={status === 1 ? 'success' : status === 2 ? 'error' : 'default'}
+          text={status === 1 ? '健康' : status === 2 ? '异常' : '停用'}
+        />
+      ),
+    },
+    {
+      title: '操作',
+      width: 320,
+      render: (_, record) => (
+        <Space>
+          <Button
+            size="small"
+            loading={testingId === record.id}
+            onClick={() => handleTest(record.id)}
+          >
+            测试连接
+          </Button>
+          {!record.is_default && record.status !== 0 && (
+            <Button size="small" onClick={() => handleSetDefault(record.id)}>
+              设为默认
+            </Button>
+          )}
+          <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
+            编辑
+          </Button>
+          <Popconfirm title="确定删除?" onConfirm={() => handleDelete(record.id)}>
+            <Button size="small" danger icon={<DeleteOutlined />}>
+              删除
+            </Button>
+          </Popconfirm>
+        </Space>
+      ),
+    },
+  ];
+
+  return (
+    <div>
+      <div style={{ marginBottom: '16px' }}>
+        <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
+          添加Prometheus集群
+        </Button>
+      </div>
+      <Table columns={columns} dataSource={configs} rowKey="id" pagination={false} />
+
+      <Modal
+        title={editingConfig ? '编辑集群' : '添加Prometheus集群'}
+        open={modalVisible}
+        onCancel={() => setModalVisible(false)}
+        onOk={() => form.submit()}
+        width={600}
+      >
+        <Form form={form} layout="vertical" onFinish={handleSubmit}>
+          <Form.Item name="name" label="集群名称" rules={[{ required: true, message: '请输入集群名称' }]}>
+            <Input placeholder="例如: Production" />
+          </Form.Item>
+          <Form.Item
+            name="url"
+            label="Prometheus URL"
+            rules={[{ required: true, message: '请输入Prometheus地址' }]}
+          >
+            <Input placeholder="例如: http://prometheus:9090" />
+          </Form.Item>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item name="status" valuePropName="checked" label="启用">
+                <Switch checkedChildren="启用" unCheckedChildren="停用" defaultChecked />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="is_default" valuePropName="checked" label="设为默认">
+                <Switch />
+              </Form.Item>
+            </Col>
+          </Row>
+        </Form>
+      </Modal>
+    </div>
+  );
+};
+
+export default ConfigCenter;

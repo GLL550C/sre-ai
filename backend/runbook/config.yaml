@@ -1,0 +1,23 @@
+server:
+  port: "8082"
+  read_timeout: 30
+  write_timeout: 30
+
+log:
+  level: "info"
+  format: "json"
+  output_path: "stdout"
+
+database:
+  host: "localhost"
+  port: "3306"
+  user: "root"
+  password: "root123"
+  name: "sre_platform"
+  max_open_conns: 25
+  max_idle_conns: 10
+
+redis:
+  addr: "localhost:6379"
+  password: ""
+  db: 0

@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#000000" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta
+      name="description"
+      content="SRE AI - Intelligent Monitoring Platform"
+    />
+    <title>SRE AI Platform</title>
+  </head>
+  <body>
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <div id="root"></div>
+    <script>
+      window.onerror = function(msg, url, line, col, error) {
+        console.error('Global error:', msg, 'at', url, 'line', line, 'col', col);
+        document.body.innerHTML = '<div style="padding: 20px; color: red;"><h2>JavaScript Error</h2><pre>' + msg + '\n at ' + url + ':' + line + '</pre></div>';
+        return false;
+      };
+    </script>
+  </body>
+</html>

@@ -1,0 +1,160 @@
+version: '3.8'
+
+services:
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    container_name: sre-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root123
+      MYSQL_DATABASE: sre_platform
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ../sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - sre-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: sre-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - sre-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # API Gateway
+  gateway:
+    image: sre-gateway:latest
+    container_name: sre-gateway
+    volumes:
+      - ../backend/gateway/config.yaml:/app/config.yaml:ro
+    environment:
+      - PORT=8080
+      - LOG_LEVEL=info
+      - REDIS_URL=redis:6379
+      - CORE_SERVICE_URL=http://core:8081
+      - RUNBOOK_SERVICE_URL=http://runbook:8082
+      - TENANT_SERVICE_URL=http://tenant:8083
+    ports:
+      - "8080:8080"
+    depends_on:
+      - redis
+      - core
+      - runbook
+      - tenant
+    networks:
+      - sre-network
+    restart: unless-stopped
+
+  # Core Service
+  core:
+    image: sre-core:latest
+    container_name: sre-core
+    volumes:
+      - ../backend/core/config.yaml:/app/config.yaml:ro
+    environment:
+      - PORT=8081
+      - LOG_LEVEL=info
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=root
+      - DB_PASSWORD=root123
+      - DB_NAME=sre_platform
+      - REDIS_URL=redis:6379
+    ports:
+      - "8081:8081"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - sre-network
+    restart: unless-stopped
+
+  # Runbook Service
+  runbook:
+    image: sre-runbook:latest
+    container_name: sre-runbook
+    volumes:
+      - ../backend/runbook/config.yaml:/app/config.yaml:ro
+    environment:
+      - PORT=8082
+      - LOG_LEVEL=info
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=root
+      - DB_PASSWORD=root123
+      - DB_NAME=sre_platform
+      - REDIS_URL=redis:6379
+    ports:
+      - "8082:8082"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - sre-network
+    restart: unless-stopped
+
+  # Tenant Service
+  tenant:
+    image: sre-tenant:latest
+    container_name: sre-tenant
+    volumes:
+      - ../backend/tenant/config.yaml:/app/config.yaml:ro
+    environment:
+      - PORT=8083
+      - LOG_LEVEL=info
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=root
+      - DB_PASSWORD=root123
+      - DB_NAME=sre_platform
+      - REDIS_URL=redis:6379
+    ports:
+      - "8083:8083"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - sre-network
+    restart: unless-stopped
+
+  # Frontend
+  frontend:
+    image: sre-frontend:latest
+    container_name: sre-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - gateway
+    networks:
+      - sre-network
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
+  redis_data:
+
+networks:
+  sre-network:
+    driver: bridge
