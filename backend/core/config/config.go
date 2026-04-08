@@ -2,7 +2,6 @@ package config
 
 import (
 	"context"
-	"core/model"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -248,7 +247,7 @@ func (cm *ConfigManager) Stop() {
 
 // LoadConfig loads configuration from database
 func (cm *ConfigManager) LoadConfig() error {
-	rows, err := cm.db.Query("SELECT config_key, config_value FROM platform_configs")
+	rows, err := cm.db.Query("SELECT config_key, config_value FROM system_configs")
 	if err != nil {
 		return err
 	}
@@ -256,12 +255,12 @@ func (cm *ConfigManager) LoadConfig() error {
 
 	newConfigs := make(map[string]string)
 	for rows.Next() {
-		var config model.PlatformConfig
-		if err := rows.Scan(&config.ConfigKey, &config.ConfigValue); err != nil {
+		var key, value string
+		if err := rows.Scan(&key, &value); err != nil {
 			cm.logger.Error("Failed to scan config", zap.Error(err))
 			continue
 		}
-		newConfigs[config.ConfigKey] = config.ConfigValue
+		newConfigs[key] = value
 	}
 
 	// Update configs

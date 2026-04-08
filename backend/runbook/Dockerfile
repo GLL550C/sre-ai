@@ -8,7 +8,7 @@ RUN go mod tidy
 COPY . .
 RUN rm -f go.sum && go mod tidy && go build -o bin/runbook main.go
 
-FROM alpine:latest
+FROM alpine:3.18
 
 RUN apk --no-cache add ca-certificates
 

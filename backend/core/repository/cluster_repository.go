@@ -8,26 +8,23 @@ import (
 	"go.uber.org/zap"
 )
 
-// ClusterRepository handles Prometheus cluster data access
+// ClusterRepository Prometheus集群数据访问
 type ClusterRepository struct {
 	db     *sql.DB
 	logger *zap.Logger
 }
 
-// NewClusterRepository creates a new cluster repository
+// NewClusterRepository 创建仓库
 func NewClusterRepository(db *sql.DB, logger *zap.Logger) *ClusterRepository {
-	return &ClusterRepository{
-		db:     db,
-		logger: logger,
-	}
+	return &ClusterRepository{db: db, logger: logger}
 }
 
-// GetClusters retrieves all Prometheus clusters
-func (r *ClusterRepository) GetClusters(status int) ([]model.PrometheusCluster, error) {
+// GetAll 获取所有集群
+func (r *ClusterRepository) GetAll() ([]model.PrometheusCluster, error) {
 	query := `SELECT id, name, url, status, is_default, config_json, created_at, updated_at
-		FROM prometheus_clusters WHERE status = ? ORDER BY is_default DESC, created_at DESC`
+		FROM prometheus_clusters ORDER BY is_default DESC, id ASC`
 
-	rows, err := r.db.Query(query, status)
+	rows, err := r.db.Query(query)
 	if err != nil {
 		return nil, err
 	}
@@ -35,116 +32,103 @@ func (r *ClusterRepository) GetClusters(status int) ([]model.PrometheusCluster, 
 
 	var clusters []model.PrometheusCluster
 	for rows.Next() {
-		var cluster model.PrometheusCluster
-		var configJSON []byte
-		err := rows.Scan(
-			&cluster.ID, &cluster.Name, &cluster.URL, &cluster.Status, &cluster.IsDefault,
-			&configJSON, &cluster.CreatedAt, &cluster.UpdatedAt,
-		)
+		var c model.PrometheusCluster
+		var cfg []byte
+		err := rows.Scan(&c.ID, &c.Name, &c.URL, &c.Status, &c.IsDefault, &cfg, &c.CreatedAt, &c.UpdatedAt)
 		if err != nil {
-			r.logger.Error("Failed to scan cluster", zap.Error(err))
+			r.logger.Error("扫描集群失败", zap.Error(err))
 			continue
 		}
-		if configJSON != nil {
-			cluster.ConfigJSON = configJSON
+		if cfg != nil {
+			c.ConfigJSON = cfg
 		}
-		clusters = append(clusters, cluster)
+		clusters = append(clusters, c)
 	}
-
 	return clusters, nil
 }
 
-// GetClusterByID retrieves a cluster by ID
-func (r *ClusterRepository) GetClusterByID(id int64) (*model.PrometheusCluster, error) {
+// GetByID 根据ID获取
+func (r *ClusterRepository) GetByID(id int64) (*model.PrometheusCluster, error) {
 	query := `SELECT id, name, url, status, is_default, config_json, created_at, updated_at
 		FROM prometheus_clusters WHERE id = ?`
 
-	var cluster model.PrometheusCluster
-	var configJSON []byte
-	err := r.db.QueryRow(query, id).Scan(
-		&cluster.ID, &cluster.Name, &cluster.URL, &cluster.Status, &cluster.IsDefault,
-		&configJSON, &cluster.CreatedAt, &cluster.UpdatedAt,
-	)
+	var c model.PrometheusCluster
+	var cfg []byte
+	err := r.db.QueryRow(query, id).Scan(&c.ID, &c.Name, &c.URL, &c.Status, &c.IsDefault, &cfg, &c.CreatedAt, &c.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
-	if configJSON != nil {
-		cluster.ConfigJSON = configJSON
+	if cfg != nil {
+		c.ConfigJSON = cfg
 	}
-
-	return &cluster, nil
+	return &c, nil
 }
 
-// GetDefaultCluster retrieves the default cluster
-func (r *ClusterRepository) GetDefaultCluster() (*model.PrometheusCluster, error) {
+// GetClusterByID 根据ID获取(兼容旧代码)
+func (r *ClusterRepository) GetClusterByID(id int64) (*model.PrometheusCluster, error) {
+	return r.GetByID(id)
+}
+
+// GetDefault 获取默认集群
+func (r *ClusterRepository) GetDefault() (*model.PrometheusCluster, error) {
 	query := `SELECT id, name, url, status, is_default, config_json, created_at, updated_at
 		FROM prometheus_clusters WHERE is_default = TRUE AND status = 1 LIMIT 1`
 
-	var cluster model.PrometheusCluster
-	var configJSON []byte
-	err := r.db.QueryRow(query).Scan(
-		&cluster.ID, &cluster.Name, &cluster.URL, &cluster.Status, &cluster.IsDefault,
-		&configJSON, &cluster.CreatedAt, &cluster.UpdatedAt,
-	)
+	var c model.PrometheusCluster
+	var cfg []byte
+	err := r.db.QueryRow(query).Scan(&c.ID, &c.Name, &c.URL, &c.Status, &c.IsDefault, &cfg, &c.CreatedAt, &c.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
-	if configJSON != nil {
-		cluster.ConfigJSON = configJSON
+	if cfg != nil {
+		c.ConfigJSON = cfg
 	}
-
-	return &cluster, nil
+	return &c, nil
 }
 
-// GetActiveClusters retrieves all active clusters
-func (r *ClusterRepository) GetActiveClusters() ([]model.PrometheusCluster, error) {
-	return r.GetClusters(1)
-}
+// Create 创建集群
+func (r *ClusterRepository) Create(c *model.PrometheusCluster) error {
+	query := `INSERT INTO prometheus_clusters (name, url, status, is_default, config_json, created_by)
+		VALUES (?, ?, ?, ?, ?, ?)`
 
-// CreateCluster creates a new Prometheus cluster
-func (r *ClusterRepository) CreateCluster(cluster *model.PrometheusCluster) error {
-	query := `INSERT INTO prometheus_clusters (name, url, status, is_default, config_json)
-		VALUES (?, ?, ?, ?, ?)`
-
-	configJSON, _ := json.Marshal(cluster.ConfigJSON)
-
-	result, err := r.db.Exec(query, cluster.Name, cluster.URL, cluster.Status, cluster.IsDefault, configJSON)
+	cfg, _ := json.Marshal(c.ConfigJSON)
+	result, err := r.db.Exec(query, c.Name, c.URL, c.Status, c.IsDefault, cfg, c.CreatedBy)
 	if err != nil {
 		return err
 	}
-
 	id, _ := result.LastInsertId()
-	cluster.ID = id
+	c.ID = id
 	return nil
 }
 
-// UpdateCluster updates a Prometheus cluster
-func (r *ClusterRepository) UpdateCluster(cluster *model.PrometheusCluster) error {
-	query := `UPDATE prometheus_clusters SET name = ?, url = ?, status = ?, is_default = ?, config_json = ? WHERE id = ?`
+// Update 更新集群
+func (r *ClusterRepository) Update(c *model.PrometheusCluster) error {
+	query := `UPDATE prometheus_clusters
+		SET name = ?, url = ?, status = ?, is_default = ?, config_json = ?, updated_by = ?
+		WHERE id = ?`
 
-	configJSON, _ := json.Marshal(cluster.ConfigJSON)
-
-	_, err := r.db.Exec(query, cluster.Name, cluster.URL, cluster.Status, cluster.IsDefault, configJSON, cluster.ID)
+	cfg, _ := json.Marshal(c.ConfigJSON)
+	_, err := r.db.Exec(query, c.Name, c.URL, c.Status, c.IsDefault, cfg, c.UpdatedBy, c.ID)
 	return err
 }
 
-// ClearDefaultCluster clears the default flag from all clusters
-func (r *ClusterRepository) ClearDefaultCluster() error {
+// Delete 删除集群(软删除)
+func (r *ClusterRepository) Delete(id int64) error {
+	query := `UPDATE prometheus_clusters SET status = 0 WHERE id = ?`
+	_, err := r.db.Exec(query, id)
+	return err
+}
+
+// ClearDefault 清除默认标记
+func (r *ClusterRepository) ClearDefault() error {
 	query := `UPDATE prometheus_clusters SET is_default = FALSE WHERE is_default = TRUE`
 	_, err := r.db.Exec(query)
 	return err
 }
 
-// SetDefaultCluster sets a cluster as default
-func (r *ClusterRepository) SetDefaultCluster(id int64) error {
+// SetDefault 设置默认集群
+func (r *ClusterRepository) SetDefault(id int64) error {
 	query := `UPDATE prometheus_clusters SET is_default = TRUE WHERE id = ?`
-	_, err := r.db.Exec(query, id)
-	return err
-}
-
-// DeleteCluster soft deletes a cluster
-func (r *ClusterRepository) DeleteCluster(id int64) error {
-	query := "UPDATE prometheus_clusters SET status = 0 WHERE id = ?"
 	_, err := r.db.Exec(query, id)
 	return err
 }

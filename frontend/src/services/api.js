@@ -124,6 +124,7 @@ export const getConfigItems = (category, subCategory) =>
   api.get('/core/config/items', { params: { category, sub_category: subCategory } });
 export const getConfigItem = (key) => api.get(`/core/config/items/${key}`);
 export const getConfigValue = (key) => api.get(`/core/config/items/${key}`);
+export const getSystemName = () => api.get('/core/config/app/name');
 export const updateConfigValue = (key, value) =>
   api.put(`/core/config/items/${key}`, { value });
 export const updateMultipleConfigs = (configs) =>

@@ -9,7 +9,7 @@ log:
   output_path: "stdout"
 
 database:
-  host: "localhost"
+  host: "mysql"
   port: "3306"
   user: "root"
   password: "root123"

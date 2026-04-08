@@ -8,6 +8,7 @@ import (
 	"core/repository"
 	"core/service"
 	"database/sql"
+	"os"
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/go-sql-driver/mysql"
@@ -17,144 +18,102 @@ import (
 )
 
 func main() {
-	// Load configuration
+	// 加载配置
 	cfg, err := config.LoadConfig("config.yaml")
 	if err != nil {
-		panic("Failed to load config: " + err.Error())
+		panic("加载配置失败: " + err.Error())
 	}
 
-	// Initialize logger
+	// 初始化日志
 	logger := config.InitLogger(cfg.Log)
 	defer logger.Sync()
 
-	logger.Info("Configuration loaded",
+	logger.Info("配置加载完成",
 		zap.String("port", cfg.Server.Port),
 		zap.String("database", cfg.Database.Host),
 	)
 
-	// Initialize database
+	// 初始化数据库
 	db, err := initDB(cfg.Database)
 	if err != nil {
-		logger.Fatal("Failed to connect to database", zap.Error(err))
+		logger.Fatal("连接数据库失败", zap.Error(err))
 	}
 	defer db.Close()
 
-	// Initialize Redis client
+	// 初始化Redis
 	redisClient := redis.NewClient(&redis.Options{
 		Addr:     cfg.Redis.Addr,
 		Password: cfg.Redis.Password,
 		DB:       cfg.Redis.DB,
 	})
 
-	// Initialize config manager
-	configManager := config.NewConfigManager(db, redisClient, logger)
-	configManager.Start()
-
-	// Initialize repositories
+	// 初始化仓库
 	alertRepo := repository.NewAlertRepository(db, logger)
 	ruleRepo := repository.NewRuleRepository(db, logger)
 	clusterRepo := repository.NewClusterRepository(db, logger)
 	analysisRepo := repository.NewAnalysisRepository(db, logger)
-	dashboardRepo := repository.NewDashboardRepository(db, logger)
-	aiModelRepo := repository.NewAIModelRepository(db, logger)
 	configRepo := repository.NewConfigRepository(db, logger)
 	userRepo := repository.NewUserRepository(db, logger)
 
-	// Initialize new config service and init config items
-	configService := service.NewConfigService(configRepo, logger)
-	if err := configService.InitConfigItems(); err != nil {
-		logger.Warn("Failed to init config items", zap.Error(err))
-	}
+	// 初始化AI模型仓库
+	aiModelRepo := repository.NewAIModelRepository(db, logger)
 
-	// Initialize AI model service
-	aiModelService := service.NewAIModelService(aiModelRepo, logger)
-
-	// Initialize AI service from database config (or fallback to env)
-	var aiAnalysisService *ai.AnalysisService
-	aiModelConfig, err := aiModelService.GetActiveConfig()
-	if err == nil && aiModelConfig != nil && aiModelConfig.IsEnabled {
-		aiConfig := aiModelService.BuildAIConfigFromModel(aiModelConfig)
-		aiAnalysisService, err = ai.NewAnalysisService(aiConfig, logger)
-		if err != nil {
-			logger.Warn("Failed to initialize AI service from DB config", zap.Error(err))
-		} else {
-			logger.Info("AI service initialized from database config",
-				zap.String("provider", aiModelConfig.Provider),
-				zap.String("model", aiModelConfig.Model),
-			)
-		}
-	}
-
-	// Fallback to environment config if DB config not available
-	if aiAnalysisService == nil {
-		aiConfig := config.LoadAIConfigFromEnv()
-		if aiConfig.Enabled && aiConfig.APIKey != "" {
-			aiAnalysisService, err = ai.NewAnalysisService(aiConfig, logger)
-			if err != nil {
-				logger.Warn("Failed to initialize AI service from env", zap.Error(err))
-			} else {
-				logger.Info("AI service initialized from environment config",
-					zap.String("provider", aiConfig.Provider),
-					zap.String("model", aiConfig.Model),
-				)
-			}
-		}
-	}
-
-	if aiAnalysisService == nil {
-		logger.Warn("AI service is not initialized - AI features will be unavailable")
-	}
-
-	// Initialize services
-	alertService := service.NewAlertService(alertRepo, clusterRepo, redisClient, logger)
+	// 初始化服务
+	alertService := service.NewAlertService(alertRepo, logger)
 	ruleService := service.NewRuleService(ruleRepo, logger)
 	clusterService := service.NewClusterService(clusterRepo, redisClient, logger)
-	analysisService := service.NewAnalysisService(analysisRepo, alertRepo, clusterRepo, redisClient, logger, aiAnalysisService, aiModelService)
-	dashboardService := service.NewDashboardService(dashboardRepo, logger)
-	prometheusService := service.NewPrometheusService(clusterRepo, redisClient, logger)
+	dashboardService := service.NewDashboardService(alertRepo, clusterRepo, logger)
+	aiModelService := service.NewAIModelService(aiModelRepo, logger)
+	analysisService := service.NewAnalysisService(analysisRepo, alertRepo, clusterRepo, redisClient, logger, nil, aiModelService)
+	configService := service.NewConfigService(configRepo, logger)
 	authService := service.NewAuthService(userRepo, redisClient, logger)
 	userService := service.NewUserService(userRepo, authService, logger)
 
-	// Initialize controllers
+	// 初始化AI服务（如果配置了）
+	aiAnalysisService, err := initAIService(db, logger)
+	if err != nil {
+		logger.Warn("AI服务初始化失败", zap.Error(err))
+	}
+	if aiAnalysisService != nil {
+		// AI服务已通过依赖注入设置
+		logger.Info("AI服务已初始化")
+	}
+
+	// 初始化控制器
 	alertController := controller.NewAlertController(alertService, logger)
 	ruleController := controller.NewRuleController(ruleService, logger)
 	clusterController := controller.NewClusterController(clusterService, logger)
-	analysisController := controller.NewAnalysisController(analysisService, logger)
 	dashboardController := controller.NewDashboardController(dashboardService, logger)
+	analysisController := controller.NewAnalysisController(analysisService, logger)
 	configController := controller.NewConfigController(configService, logger)
-	prometheusController := controller.NewPrometheusController(prometheusService, logger)
-	aiModelController := controller.NewAIModelController(aiModelService, logger)
 	authController := controller.NewAuthController(authService, userService, logger)
 	userController := controller.NewUserController(userService, logger)
+	aiModelController := controller.NewAIModelController(aiModelService, logger)
 
-	// Setup router
+	// 设置路由
 	router := gin.New()
 	router.Use(middleware.Logger(logger))
 	router.Use(middleware.Recovery(logger))
 	router.Use(middleware.CORS())
-	router.Use(middleware.NoCache())
 	router.Use(middleware.JWTAuth(authService))
 
-	// Prometheus metrics endpoint
+	// 指标和健康检查
 	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
-
-	// Health check
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok", "service": "core"})
 	})
 
-	// API v1 routes
+	// API v1
 	v1 := router.Group("/api/v1")
 	{
-		// Auth routes (public)
+		// 认证
 		v1.GET("/auth/captcha", authController.GetCaptcha)
 		v1.POST("/auth/login", authController.Login)
 		v1.POST("/auth/logout", authController.Logout)
 		v1.GET("/auth/me", authController.GetCurrentUser)
 		v1.POST("/auth/change-password", authController.ChangePassword)
-		v1.POST("/auth/refresh", authController.RefreshToken)
 
-		// User management routes (admin only)
+		// 用户管理
 		v1.GET("/users", middleware.RequireAdmin(), userController.ListUsers)
 		v1.GET("/users/:id", middleware.RequireAdmin(), userController.GetUser)
 		v1.POST("/users", middleware.RequireAdmin(), userController.CreateUser)
@@ -162,21 +121,21 @@ func main() {
 		v1.DELETE("/users/:id", middleware.RequireAdmin(), userController.DeleteUser)
 		v1.POST("/users/:id/reset-password", middleware.RequireAdmin(), userController.ResetPassword)
 
-		// Alerts
+		// 告警
 		v1.GET("/alerts", alertController.GetAlerts)
 		v1.GET("/alerts/:id", alertController.GetAlert)
 		v1.POST("/alerts", alertController.CreateAlert)
 		v1.POST("/alerts/webhook", alertController.ReceiveWebhook)
 		v1.PUT("/alerts/:id/ack", alertController.AcknowledgeAlert)
 
-		// Rules
+		// 规则
 		v1.GET("/rules", ruleController.GetRules)
 		v1.GET("/rules/:id", ruleController.GetRule)
 		v1.POST("/rules", ruleController.CreateRule)
 		v1.PUT("/rules/:id", ruleController.UpdateRule)
 		v1.DELETE("/rules/:id", ruleController.DeleteRule)
 
-		// Clusters
+		// 集群
 		v1.GET("/clusters", clusterController.GetClusters)
 		v1.GET("/clusters/default", clusterController.GetDefaultCluster)
 		v1.GET("/clusters/:id", clusterController.GetCluster)
@@ -186,16 +145,21 @@ func main() {
 		v1.POST("/clusters/:id/test", clusterController.TestCluster)
 		v1.PUT("/clusters/:id/default", clusterController.SetDefaultCluster)
 
-		// Analysis
+		// 仪表板
+		v1.GET("/dashboard", dashboardController.GetDashboard)
+		v1.GET("/dashboard/metrics", dashboardController.GetMetrics)
+
+		// AI分析
 		v1.GET("/analysis", analysisController.GetAnalysis)
 		v1.GET("/analysis/:id", analysisController.GetAnalysisByID)
 		v1.POST("/analysis", analysisController.CreateAnalysis)
 		v1.DELETE("/analysis/:id", analysisController.DeleteAnalysis)
-		v1.PUT("/analysis/:id/archive", analysisController.ArchiveAnalysis)
 		v1.GET("/analysis/stats", analysisController.GetAnalysisStats)
-		v1.POST("/analysis/compare", analysisController.CompareClusters)
+		v1.POST("/ai/chat", analysisController.Chat)
+		v1.GET("/ai/health", analysisController.AIHealth)
+		v1.GET("/ai/model", analysisController.AIModelInfo)
 
-		// AI Model Config endpoints
+		// AI模型配置
 		v1.GET("/ai/configs", aiModelController.GetConfigs)
 		v1.GET("/ai/configs/:id", aiModelController.GetConfig)
 		v1.POST("/ai/configs", aiModelController.CreateConfig)
@@ -205,42 +169,20 @@ func main() {
 		v1.PUT("/ai/configs/:id/default", aiModelController.SetDefaultConfig)
 		v1.GET("/ai/configs/active", aiModelController.GetActiveConfig)
 
-		// AI Chat endpoints
-		v1.POST("/ai/chat", analysisController.Chat)
-		v1.POST("/ai/chat/stream", analysisController.ChatStream)
-		v1.GET("/ai/health", analysisController.AIHealth)
-		v1.GET("/ai/model", analysisController.AIModelInfo)
-
-		// Dashboard
-		v1.GET("/dashboard", dashboardController.GetDashboard)
-		v1.GET("/dashboard/metrics", dashboardController.GetMetrics)
-
-		// Config (new hierarchical config system)
-		v1.GET("/config/tree", configController.GetConfigTree)
+		// 配置
+		v1.GET("/config", configController.GetByCategory)
 		v1.GET("/config/items", configController.GetConfigItems)
-		v1.GET("/config/items/:key", configController.GetConfigItem)
-		v1.PUT("/config/items/:key", configController.UpdateConfigValue)
-		v1.POST("/config/batch", configController.UpdateMultipleConfigs)
-		v1.POST("/config/items/:key/reset", configController.ResetConfigToDefault)
-		v1.GET("/config/settings/system", configController.GetSystemSettings)
-		v1.GET("/config/settings/ai", configController.GetAISettings)
-		v1.GET("/config/settings/notification", configController.GetNotificationSettings)
-		v1.GET("/config/export", configController.ExportConfig)
-		v1.POST("/config/import", configController.ImportConfig)
-
-		// Legacy Config (keep for compatibility)
-		v1.GET("/configs", configController.GetConfigs)
-		v1.POST("/configs/reload", configController.ReloadConfig)
-
-		// Prometheus proxy
-		v1.GET("/prometheus/query", prometheusController.Query)
-		v1.GET("/prometheus/query_range", prometheusController.QueryRange)
+		v1.GET("/config/items/:key", configController.GetConfigItemByKey)
+		v1.PUT("/config/items/:key", configController.Update)
+		v1.GET("/config/app/name", configController.GetAppName)
+		v1.GET("/config/:key", configController.GetByKey)
+		v1.PUT("/config/:key", configController.Update)
 	}
 
-	// Start server
-	logger.Info("Core service starting", zap.String("port", cfg.Server.Port))
+	// 启动服务
+	logger.Info("Core服务启动", zap.String("port", cfg.Server.Port))
 	if err := router.Run(":" + cfg.Server.Port); err != nil {
-		logger.Fatal("Failed to start server", zap.Error(err))
+		logger.Fatal("启动失败", zap.Error(err))
 	}
 }
 
@@ -250,14 +192,37 @@ func initDB(cfg config.DatabaseConfig) (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	if err := db.Ping(); err != nil {
 		return nil, err
 	}
-
-	// Set connection pool settings
 	db.SetMaxOpenConns(cfg.MaxOpenConns)
 	db.SetMaxIdleConns(cfg.MaxIdleConns)
-
 	return db, nil
+}
+
+func initAIService(db *sql.DB, logger *zap.Logger) (*ai.AnalysisService, error) {
+	// 从环境变量或配置加载AI配置
+	aiConfig := &config.AIConfig{
+		Provider:    getEnv("AI_PROVIDER", "openai"),
+		Model:       getEnv("AI_MODEL", "gpt-4"),
+		APIKey:      getEnv("AI_API_KEY", ""),
+		BaseURL:     getEnv("AI_BASE_URL", ""),
+		MaxTokens:   4000,
+		Temperature: 0.7,
+		Timeout:     60,
+		Enabled:     getEnv("AI_API_KEY", "") != "",
+	}
+
+	if !aiConfig.Enabled {
+		return nil, nil
+	}
+
+	return ai.NewAnalysisService(aiConfig, logger)
+}
+
+func getEnv(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
 }

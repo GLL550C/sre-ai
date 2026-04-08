@@ -1,47 +1,53 @@
 package service
 
 import (
-	"core/model"
 	"core/repository"
-
 	"go.uber.org/zap"
 )
 
-// DashboardService handles dashboard business logic
+// DashboardService 仪表板服务
 type DashboardService struct {
-	dashboardRepo *repository.DashboardRepository
-	logger        *zap.Logger
+	alertRepo   *repository.AlertRepository
+	clusterRepo *repository.ClusterRepository
+	logger      *zap.Logger
 }
 
-// NewDashboardService creates a new dashboard service
-func NewDashboardService(dashboardRepo *repository.DashboardRepository, logger *zap.Logger) *DashboardService {
+// NewDashboardService 创建仪表板服务
+func NewDashboardService(alertRepo *repository.AlertRepository, clusterRepo *repository.ClusterRepository, logger *zap.Logger) *DashboardService {
 	return &DashboardService{
-		dashboardRepo: dashboardRepo,
-		logger:        logger,
+		alertRepo:   alertRepo,
+		clusterRepo: clusterRepo,
+		logger:      logger,
 	}
 }
 
-// GetDashboard retrieves the default dashboard
-func (s *DashboardService) GetDashboard(tenantID *int64) (*model.DashboardConfig, error) {
-	return s.dashboardRepo.GetDefaultDashboard(tenantID)
-}
+// GetDashboard 获取仪表板数据
+func (s *DashboardService) GetDashboard(tenantID *int64) (map[string]interface{}, error) {
+	// 获取集群数量
+	clusters, err := s.clusterRepo.GetAll()
+	if err != nil {
+		s.logger.Error("获取集群列表失败", zap.Error(err))
+	}
 
-// GetDashboardConfigs retrieves dashboard configurations
-func (s *DashboardService) GetDashboardConfigs(tenantID *int64) ([]model.DashboardConfig, error) {
-	return s.dashboardRepo.GetDashboardConfigs(tenantID)
-}
+	// 获取告警统计
+	firingCount, _ := s.alertRepo.GetCount("firing", "")
+	resolvedCount, _ := s.alertRepo.GetCount("resolved", "")
+	acknowledgedCount, _ := s.alertRepo.GetCount("acknowledged", "")
 
-// CreateDashboardConfig creates a new dashboard configuration
-func (s *DashboardService) CreateDashboardConfig(config *model.DashboardConfig) error {
-	return s.dashboardRepo.CreateDashboardConfig(config)
-}
+	// 获取严重级别统计
+	criticalCount, _ := s.alertRepo.GetCount("", "critical")
+	warningCount, _ := s.alertRepo.GetCount("", "warning")
+	infoCount, _ := s.alertRepo.GetCount("", "info")
 
-// UpdateDashboardConfig updates a dashboard configuration
-func (s *DashboardService) UpdateDashboardConfig(config *model.DashboardConfig) error {
-	return s.dashboardRepo.UpdateDashboardConfig(config)
-}
+	dashboard := map[string]interface{}{
+		"cluster_count":      len(clusters),
+		"firing_alerts":      firingCount,
+		"resolved_alerts":    resolvedCount,
+		"acknowledged_count": acknowledgedCount,
+		"critical_count":     criticalCount,
+		"warning_count":      warningCount,
+		"info_count":         infoCount,
+	}
 
-// DeleteDashboardConfig deletes a dashboard configuration
-func (s *DashboardService) DeleteDashboardConfig(id int64) error {
-	return s.dashboardRepo.DeleteDashboardConfig(id)
+	return dashboard, nil
 }

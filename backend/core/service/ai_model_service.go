@@ -6,110 +6,96 @@ import (
 	"core/model"
 	"core/repository"
 	"fmt"
-	"time"
 
 	"go.uber.org/zap"
 )
 
-// AIModelService handles AI model config business logic
+// AIModelService AI模型业务逻辑
 type AIModelService struct {
-	repo      *repository.AIModelRepository
-	logger    *zap.Logger
-	aiService *ai.AnalysisService
+	repo   *repository.AIModelRepository
+	logger *zap.Logger
 }
 
-// NewAIModelService creates a new AI model service
+// NewAIModelService 创建服务
 func NewAIModelService(repo *repository.AIModelRepository, logger *zap.Logger) *AIModelService {
-	return &AIModelService{
-		repo:   repo,
-		logger: logger,
-	}
+	return &AIModelService{repo: repo, logger: logger}
 }
 
-// GetAllConfigs retrieves all AI model configs
-func (s *AIModelService) GetAllConfigs() ([]model.AIModelConfig, error) {
-	return s.repo.GetAllConfigs()
+// GetAll 获取所有配置
+func (s *AIModelService) GetAll() ([]model.AIModel, error) {
+	return s.repo.GetAll()
 }
 
-// GetConfigByID retrieves an AI model config by ID
-func (s *AIModelService) GetConfigByID(id int64) (*model.AIModelConfig, error) {
-	return s.repo.GetConfigByID(id)
+// GetByID 根据ID获取
+func (s *AIModelService) GetByID(id int64) (*model.AIModel, error) {
+	return s.repo.GetByID(id)
 }
 
-// CreateConfig creates a new AI model config
-func (s *AIModelService) CreateConfig(config *model.AIModelConfig, user string) error {
-	config.CreatedBy = user
-	config.UpdatedBy = user
-	config.CreatedAt = time.Now()
-	config.UpdatedAt = time.Now()
+// Create 创建配置
+func (s *AIModelService) Create(m *model.AIModel, user string) error {
+	m.CreatedBy = user
+	m.UpdatedBy = user
 
-	// Validate required fields
-	if config.Name == "" || config.Provider == "" || config.Model == "" || config.APIKey == "" {
+	if m.Name == "" || m.Provider == "" || m.Model == "" || m.APIKey == "" {
 		return fmt.Errorf("name, provider, model and api_key are required")
 	}
 
-	// Set defaults
-	if config.MaxTokens == 0 {
-		config.MaxTokens = 4000
+	if m.MaxTokens == 0 {
+		m.MaxTokens = 4000
 	}
-	if config.Temperature == 0 {
-		config.Temperature = 0.7
+	if m.Temperature == 0 {
+		m.Temperature = 0.7
 	}
-	if config.Timeout == 0 {
-		config.Timeout = 60
+	if m.Timeout == 0 {
+		m.Timeout = 60
 	}
 
-	return s.repo.CreateConfig(config)
+	return s.repo.Create(m)
 }
 
-// UpdateConfig updates an AI model config
-func (s *AIModelService) UpdateConfig(config *model.AIModelConfig, user string) error {
-	config.UpdatedBy = user
-	config.UpdatedAt = time.Now()
+// Update 更新配置
+func (s *AIModelService) Update(m *model.AIModel, user string) error {
+	m.UpdatedBy = user
 
-	// Validate required fields
-	if config.Name == "" || config.Provider == "" || config.Model == "" || config.APIKey == "" {
+	if m.Name == "" || m.Provider == "" || m.Model == "" || m.APIKey == "" {
 		return fmt.Errorf("name, provider, model and api_key are required")
 	}
 
-	return s.repo.UpdateConfig(config)
+	return s.repo.Update(m)
 }
 
-// DeleteConfig deletes an AI model config
-func (s *AIModelService) DeleteConfig(id int64) error {
-	return s.repo.DeleteConfig(id)
+// Delete 删除配置
+func (s *AIModelService) Delete(id int64) error {
+	return s.repo.Delete(id)
 }
 
-// TestConfig tests an AI model config
-func (s *AIModelService) TestConfig(id int64) (bool, string, error) {
-	cfg, err := s.repo.GetConfigByID(id)
+// Test 测试配置
+func (s *AIModelService) Test(id int64) (bool, string, error) {
+	m, err := s.repo.GetByID(id)
 	if err != nil {
 		return false, "", err
 	}
 
-	if !cfg.IsEnabled {
+	if !m.IsEnabled {
 		return false, "Config is disabled", nil
 	}
 
-	// Create temporary AI config
 	aiConfig := &config.AIConfig{
-		Provider:    cfg.Provider,
-		Model:       cfg.Model,
-		APIKey:      cfg.APIKey,
-		BaseURL:     cfg.BaseURL,
-		MaxTokens:   cfg.MaxTokens,
-		Temperature: cfg.Temperature,
-		Timeout:     cfg.Timeout,
-		Enabled:     cfg.IsEnabled,
+		Provider:    m.Provider,
+		Model:       m.Model,
+		APIKey:      m.APIKey,
+		BaseURL:     m.BaseURL,
+		MaxTokens:   m.MaxTokens,
+		Temperature: m.Temperature,
+		Timeout:     m.Timeout,
+		Enabled:     m.IsEnabled,
 	}
 
-	// Create temporary AI service for testing
 	tempService, err := ai.NewAnalysisService(aiConfig, s.logger)
 	if err != nil {
 		return false, fmt.Sprintf("Failed to create AI client: %v", err), nil
 	}
 
-	// Test health
 	if err := tempService.Health(); err != nil {
 		return false, fmt.Sprintf("AI health check failed: %v", err), nil
 	}
@@ -117,26 +103,36 @@ func (s *AIModelService) TestConfig(id int64) (bool, string, error) {
 	return true, "Connection successful", nil
 }
 
-// SetDefaultConfig sets a config as default
-func (s *AIModelService) SetDefaultConfig(id int64) error {
-	return s.repo.SetDefaultConfig(id)
+// SetDefault 设置默认
+func (s *AIModelService) SetDefault(id int64) error {
+	return s.repo.SetDefault(id)
 }
 
-// GetActiveConfig gets the active AI config (default enabled config)
-func (s *AIModelService) GetActiveConfig() (*model.AIModelConfig, error) {
-	return s.repo.GetDefaultConfig()
+// GetDefault 获取默认配置
+func (s *AIModelService) GetDefault() (*model.AIModel, error) {
+	return s.repo.GetDefault()
 }
 
-// BuildAIConfigFromModel builds AI config from model config
-func (s *AIModelService) BuildAIConfigFromModel(cfg *model.AIModelConfig) *config.AIConfig {
+// BuildAIConfig 构建AI配置
+func (s *AIModelService) BuildAIConfig(m *model.AIModel) *config.AIConfig {
 	return &config.AIConfig{
-		Provider:    cfg.Provider,
-		Model:       cfg.Model,
-		APIKey:      cfg.APIKey,
-		BaseURL:     cfg.BaseURL,
-		MaxTokens:   cfg.MaxTokens,
-		Temperature: cfg.Temperature,
-		Timeout:     cfg.Timeout,
-		Enabled:     cfg.IsEnabled,
+		Provider:    m.Provider,
+		Model:       m.Model,
+		APIKey:      m.APIKey,
+		BaseURL:     m.BaseURL,
+		MaxTokens:   m.MaxTokens,
+		Temperature: m.Temperature,
+		Timeout:     m.Timeout,
+		Enabled:     m.IsEnabled,
 	}
+}
+
+// GetActiveConfig 获取活跃配置(兼容旧代码)
+func (s *AIModelService) GetActiveConfig() (*model.AIModel, error) {
+	return s.repo.GetDefault()
+}
+
+// BuildAIConfigFromModel 从模型构建AI配置(兼容旧代码)
+func (s *AIModelService) BuildAIConfigFromModel(m *model.AIModel) *config.AIConfig {
+	return s.BuildAIConfig(m)
 }

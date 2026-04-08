@@ -115,7 +115,7 @@ func (c *UserController) UpdateUser(ctx *gin.Context) {
 		return
 	}
 
-	user, err := c.userService.UpdateUser(id, req.Email, req.Phone, req.Role, req.Status)
+	user, err := c.userService.UpdateUser(id, req.Email, req.Phone, req.Role, int8(req.Status))
 	if err != nil {
 		c.logger.Error("Failed to update user", zap.Error(err))
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

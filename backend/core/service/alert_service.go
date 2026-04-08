@@ -12,25 +12,24 @@ import (
 	"go.uber.org/zap"
 )
 
-// AlertService handles alert business logic
+// AlertService 告警业务逻辑
 type AlertService struct {
-	alertRepo   *repository.AlertRepository
-	clusterRepo *repository.ClusterRepository
+	repo        *repository.AlertRepository
 	redisClient *redis.Client
 	logger      *zap.Logger
 }
 
-// NewAlertService creates a new alert service
-func NewAlertService(alertRepo *repository.AlertRepository, clusterRepo *repository.ClusterRepository, redisClient *redis.Client, logger *zap.Logger) *AlertService {
-	return &AlertService{
-		alertRepo:   alertRepo,
-		clusterRepo: clusterRepo,
-		redisClient: redisClient,
-		logger:      logger,
-	}
+// NewAlertService 创建服务
+func NewAlertService(repo *repository.AlertRepository, logger *zap.Logger) *AlertService {
+	return &AlertService{repo: repo, logger: logger}
 }
 
-// GetAlerts retrieves alerts with filters
+// SetRedisClient 设置Redis客户端
+func (s *AlertService) SetRedisClient(client *redis.Client) {
+	s.redisClient = client
+}
+
+// GetAlerts 获取告警列表
 func (s *AlertService) GetAlerts(status, severity string, page, pageSize int) ([]model.Alert, int, error) {
 	if page < 1 {
 		page = 1
@@ -38,141 +37,145 @@ func (s *AlertService) GetAlerts(status, severity string, page, pageSize int) ([
 	if pageSize < 1 {
 		pageSize = 20
 	}
-
 	offset := (page - 1) * pageSize
 
-	// Try cache first
-	cacheKey := fmt.Sprintf("alerts:%s:%s:%d:%d", status, severity, page, pageSize)
-	ctx := context.Background()
-	cached, err := s.redisClient.Get(ctx, cacheKey).Result()
-	if err == nil {
-		var result struct {
+	// 尝试缓存
+	if s.redisClient != nil {
+		cacheKey := fmt.Sprintf("alerts:%s:%s:%d:%d", status, severity, page, pageSize)
+		ctx := context.Background()
+		cached, err := s.redisClient.Get(ctx, cacheKey).Result()
+		if err == nil {
+			var result struct {
+				Alerts []model.Alert `json:"alerts"`
+				Count  int           `json:"count"`
+			}
+			if err := json.Unmarshal([]byte(cached), &result); err == nil {
+				return result.Alerts, result.Count, nil
+			}
+		}
+	}
+
+	alerts, err := s.repo.GetAlerts(status, severity, pageSize, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	count, err := s.repo.GetCount(status, severity)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// 缓存结果
+	if s.redisClient != nil {
+		result := struct {
 			Alerts []model.Alert `json:"alerts"`
 			Count  int           `json:"count"`
-		}
-		if err := json.Unmarshal([]byte(cached), &result); err == nil {
-			return result.Alerts, result.Count, nil
-		}
+		}{alerts, count}
+		resultJSON, _ := json.Marshal(result)
+		ctx := context.Background()
+		s.redisClient.Set(ctx, fmt.Sprintf("alerts:%s:%s:%d:%d", status, severity, page, pageSize), resultJSON, 30*time.Second)
 	}
-
-	alerts, err := s.alertRepo.GetAlerts(status, severity, pageSize, offset)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	count, err := s.alertRepo.GetAlertCount(status, severity)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	// Cache result
-	result := struct {
-		Alerts []model.Alert `json:"alerts"`
-		Count  int           `json:"count"`
-	}{alerts, count}
-	resultJSON, _ := json.Marshal(result)
-	s.redisClient.Set(ctx, cacheKey, resultJSON, 30*time.Second)
 
 	return alerts, count, nil
 }
 
-// GetAlert retrieves an alert by ID
-func (s *AlertService) GetAlert(id int64) (*model.Alert, error) {
-	return s.alertRepo.GetAlertByID(id)
+// GetByID 根据ID获取
+func (s *AlertService) GetByID(id int64) (*model.Alert, error) {
+	return s.repo.GetByID(id)
 }
 
-// CreateAlert creates a new alert
-func (s *AlertService) CreateAlert(alert *model.Alert) error {
-	return s.alertRepo.CreateAlert(alert)
+// Create 创建告警
+func (s *AlertService) Create(alert *model.Alert) error {
+	return s.repo.Create(alert)
 }
 
-// AcknowledgeAlert acknowledges an alert
-func (s *AlertService) AcknowledgeAlert(id int64, user string) error {
-	return s.alertRepo.AcknowledgeAlert(id, user)
+// Acknowledge 确认告警
+func (s *AlertService) Acknowledge(id int64, user string) error {
+	return s.repo.Acknowledge(id, user)
 }
 
-// ProcessWebhook processes alertmanager webhook
+// ProcessWebhook 处理Webhook
 func (s *AlertService) ProcessWebhook(payload *model.WebhookPayload) error {
-	for _, webhookAlert := range payload.Alerts {
-		// Check if alert already exists
-		existingAlert, err := s.alertRepo.GetAlertByFingerprint(webhookAlert.Fingerprint)
+	for _, wa := range payload.Alerts {
+		existing, err := s.repo.GetByFingerprint(wa.Fingerprint)
 		if err != nil && err.Error() != "sql: no rows in result set" {
-			s.logger.Error("Failed to check existing alert", zap.Error(err))
+			s.logger.Error("检查告警失败", zap.Error(err))
 			continue
 		}
 
-		labelsJSON, _ := json.Marshal(webhookAlert.Labels)
+		labelsJSON, _ := json.Marshal(wa.Labels)
 
-		if webhookAlert.Status == "firing" {
-			if existingAlert != nil {
-				// Update existing alert
-				s.alertRepo.UpdateAlertStatus(existingAlert.ID, "firing")
+		if wa.Status == "firing" {
+			if existing != nil {
+				s.repo.UpdateStatus(existing.ID, "firing")
 			} else {
-				// Create new alert
-				severity := webhookAlert.Labels["severity"]
+				severity := wa.Labels["severity"]
 				if severity == "" {
 					severity = "warning"
 				}
-
 				alert := &model.Alert{
-					Fingerprint: webhookAlert.Fingerprint,
+					Fingerprint: wa.Fingerprint,
 					Status:      "firing",
 					Severity:    severity,
-					Summary:     webhookAlert.Annotations["summary"],
-					Description: webhookAlert.Annotations["description"],
+					Summary:     wa.Annotations["summary"],
+					Description: wa.Annotations["description"],
 					Labels:      labelsJSON,
-					StartsAt:    webhookAlert.StartsAt,
+					StartsAt:    wa.StartsAt,
 				}
-
-				if err := s.alertRepo.CreateAlert(alert); err != nil {
-					s.logger.Error("Failed to create alert", zap.Error(err))
+				if err := s.repo.Create(alert); err != nil {
+					s.logger.Error("创建告警失败", zap.Error(err))
 					continue
 				}
 			}
-		} else if webhookAlert.Status == "resolved" {
-			if existingAlert != nil {
-				s.alertRepo.ResolveAlert(webhookAlert.Fingerprint)
+		} else if wa.Status == "resolved" {
+			if existing != nil {
+				s.repo.Resolve(wa.Fingerprint)
 			}
 		}
 	}
 
-	// Invalidate cache
-	ctx := context.Background()
-	iter := s.redisClient.Scan(ctx, 0, "alerts:*", 0).Iterator()
-	for iter.Next(ctx) {
-		s.redisClient.Del(ctx, iter.Val())
+	// 清除缓存
+	if s.redisClient != nil {
+		ctx := context.Background()
+		iter := s.redisClient.Scan(ctx, 0, "alerts:*", 0).Iterator()
+		for iter.Next(ctx) {
+			s.redisClient.Del(ctx, iter.Val())
+		}
 	}
 
 	return nil
 }
 
-// GetAlertStats gets alert statistics
-func (s *AlertService) GetAlertStats() (map[string]interface{}, error) {
+// GetStats 获取统计
+func (s *AlertService) GetStats() (map[string]interface{}, error) {
 	ctx := context.Background()
 
-	// Try cache
-	cached, err := s.redisClient.Get(ctx, "alert:stats").Result()
-	if err == nil {
-		var stats map[string]interface{}
-		if err := json.Unmarshal([]byte(cached), &stats); err == nil {
-			return stats, nil
+	// 尝试缓存
+	if s.redisClient != nil {
+		cached, err := s.redisClient.Get(ctx, "alert:stats").Result()
+		if err == nil {
+			var stats map[string]interface{}
+			if err := json.Unmarshal([]byte(cached), &stats); err == nil {
+				return stats, nil
+			}
 		}
 	}
 
-	// Calculate stats
-	firingCount, _ := s.alertRepo.GetAlertCount("firing", "")
-	criticalCount, _ := s.alertRepo.GetAlertCount("firing", "critical")
-	warningCount, _ := s.alertRepo.GetAlertCount("firing", "warning")
+	firing, _ := s.repo.GetCount("firing", "")
+	critical, _ := s.repo.GetCount("firing", "critical")
+	warning, _ := s.repo.GetCount("firing", "warning")
 
 	stats := map[string]interface{}{
-		"firing":   firingCount,
-		"critical": criticalCount,
-		"warning":  warningCount,
+		"firing":   firing,
+		"critical": critical,
+		"warning":  warning,
 	}
 
-	// Cache stats
-	statsJSON, _ := json.Marshal(stats)
-	s.redisClient.Set(ctx, "alert:stats", statsJSON, 60*time.Second)
+	// 缓存结果
+	if s.redisClient != nil {
+		statsJSON, _ := json.Marshal(stats)
+		s.redisClient.Set(ctx, "alert:stats", statsJSON, 60*time.Second)
+	}
 
 	return stats, nil
 }

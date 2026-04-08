@@ -50,12 +50,11 @@ import {
   deleteAnalysis,
   archiveAnalysis,
   getAnalysisStats,
-  compareClusters,
   getClusters,
   chatWithAI,
   getAIHealth,
   getAIModelInfo,
-  getConfigValue,
+  getSystemName,
 } from '../services/api';
 
 const { Title, Text, Paragraph } = Typography;
@@ -70,12 +69,9 @@ const Analysis = ({ darkMode }) => {
   const [loading, setLoading] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
-  const [compareModalVisible, setCompareModalVisible] = useState(false);
   const [chatDrawerVisible, setChatDrawerVisible] = useState(false);
   const [selectedAnalysis, setSelectedAnalysis] = useState(null);
-  const [compareResult, setCompareResult] = useState(null);
   const [form] = Form.useForm();
-  const [compareForm] = Form.useForm();
   const [filters, setFilters] = useState({
     cluster_id: undefined,
     type: undefined,
@@ -140,9 +136,11 @@ const Analysis = ({ darkMode }) => {
   // 从后端获取系统名称
   const fetchSystemName = async () => {
     try {
-      const res = await getConfigValue('app.name');
-      if (res.data?.data?.value) {
-        setSystemName(res.data.data.value);
+      const res = await getSystemName();
+      // 后端返回的数据结构是 { data: "SRE AI Platform" }
+      const configValue = res.data?.data;
+      if (configValue) {
+        setSystemName(configValue);
       }
     } catch (error) {
       console.error('Failed to fetch system name:', error);
@@ -187,16 +185,6 @@ const Analysis = ({ darkMode }) => {
   const handleViewDetail = (record) => {
     setSelectedAnalysis(record);
     setDetailModalVisible(true);
-  };
-
-  const handleCompareClusters = async (values) => {
-    try {
-      const res = await compareClusters({ cluster_ids: values.cluster_ids });
-      setCompareResult(res.data?.data);
-      message.success('Clusters compared successfully');
-    } catch (error) {
-      message.error('Failed to compare clusters');
-    }
   };
 
   // Chat functions
@@ -433,7 +421,6 @@ const Analysis = ({ darkMode }) => {
           <Button icon={<ReloadOutlined />} onClick={fetchData}>
             Refresh
           </Button>
-          <Button onClick={() => setCompareModalVisible(true)}>Compare Clusters</Button>
           <Button type="primary" icon={<MessageOutlined />} onClick={handleOpenChat}>
             AI Chat
           </Button>
@@ -642,59 +629,6 @@ const Analysis = ({ darkMode }) => {
                   )}
                 />
               </>
-            )}
-          </div>
-        )}
-      </Modal>
-
-      {/* Compare Modal */}
-      <Modal
-        title="Compare Prometheus Clusters"
-        open={compareModalVisible}
-        onCancel={() => {
-          setCompareModalVisible(false);
-          setCompareResult(null);
-        }}
-        footer={null}
-        width={800}
-      >
-        <Form form={compareForm} onFinish={handleCompareClusters}>
-          <Form.Item
-            name="cluster_ids"
-            label="Select Clusters to Compare (min 2)"
-            rules={[{ required: true, message: 'Please select at least 2 clusters' }]}
-          >
-            <Select mode="multiple" placeholder="Select clusters">
-              {clusters.map((cluster) => (
-                <Option key={cluster.id} value={cluster.id}>
-                  {cluster.name}
-                </Option>
-              ))}
-            </Select>
-          </Form.Item>
-          <Form.Item>
-            <Button type="primary" htmlType="submit">
-              Compare
-            </Button>
-          </Form.Item>
-        </Form>
-
-        {compareResult && (
-          <div style={{ marginTop: '24px' }}>
-            <Divider />
-            <Title level={5}>Comparison Results</Title>
-            {compareResult.findings?.length > 0 ? (
-              <List
-                bordered
-                dataSource={compareResult.findings}
-                renderItem={(finding) => (
-                  <List.Item>
-                    <List.Item.Meta title={finding.title} description={finding.description} />
-                  </List.Item>
-                )}
-              />
-            ) : (
-              <Empty description="No significant differences found" />
             )}
           </div>
         )}

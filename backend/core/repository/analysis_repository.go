@@ -26,14 +26,15 @@ func NewAnalysisRepository(db *sql.DB, logger *zap.Logger) *AnalysisRepository {
 
 // GetAnalysisWithFilters retrieves AI analysis results with filters
 func (r *AnalysisRepository) GetAnalysisWithFilters(clusterID int64, analysisType string, status int, limit, offset int) ([]model.AIAnalysis, error) {
-	query := `SELECT id, alert_id, cluster_id, alert_fingerprint, analysis_type, analysis_mode,
-		input_data, result, root_cause, suggestions, related_alerts, confidence, model_version, status, created_by, created_at, updated_at
+	query := `SELECT id, alert_id, analysis_type,
+		input_data, result, confidence, status, created_by, created_at, updated_at
 		FROM ai_analysis WHERE status = ?`
 	args := []interface{}{status}
 
 	if clusterID > 0 {
-		query += " AND cluster_id = ?"
-		args = append(args, clusterID)
+		// cluster_id 字段不存在，暂时跳过过滤
+		// query += " AND cluster_id = ?"
+		// args = append(args, clusterID)
 	}
 	if analysisType != "" {
 		query += " AND analysis_type = ?"
@@ -52,12 +53,11 @@ func (r *AnalysisRepository) GetAnalysisWithFilters(clusterID int64, analysisTyp
 	var analyses []model.AIAnalysis
 	for rows.Next() {
 		var analysis model.AIAnalysis
-		var inputData, suggestions, relatedAlerts []byte
+		var inputData []byte
 		err := rows.Scan(
-			&analysis.ID, &analysis.AlertID, &analysis.ClusterID, &analysis.AlertFingerprint,
-			&analysis.AnalysisType, &analysis.AnalysisMode, &inputData, &analysis.Result,
-			&analysis.RootCause, &suggestions, &relatedAlerts, &analysis.Confidence,
-			&analysis.ModelVersion, &analysis.Status, &analysis.CreatedBy,
+			&analysis.ID, &analysis.AlertID,
+			&analysis.AnalysisType, &inputData, &analysis.Result,
+			&analysis.Confidence, &analysis.Status, &analysis.CreatedBy,
 			&analysis.CreatedAt, &analysis.UpdatedAt,
 		)
 		if err != nil {
@@ -66,12 +66,6 @@ func (r *AnalysisRepository) GetAnalysisWithFilters(clusterID int64, analysisTyp
 		}
 		if inputData != nil {
 			analysis.InputData = inputData
-		}
-		if len(suggestions) > 0 {
-			json.Unmarshal(suggestions, &analysis.Suggestions)
-		}
-		if len(relatedAlerts) > 0 {
-			json.Unmarshal(relatedAlerts, &analysis.RelatedAlerts)
 		}
 		analyses = append(analyses, analysis)
 	}
@@ -86,17 +80,16 @@ func (r *AnalysisRepository) GetAnalysis(alertFingerprint, analysisType string, 
 
 // GetAnalysisByID retrieves an analysis by ID
 func (r *AnalysisRepository) GetAnalysisByID(id int64) (*model.AIAnalysis, error) {
-	query := `SELECT id, alert_id, cluster_id, alert_fingerprint, analysis_type, analysis_mode,
-		input_data, result, root_cause, suggestions, related_alerts, confidence, model_version, status, created_by, created_at, updated_at
+	query := `SELECT id, alert_id, analysis_type,
+		input_data, result, confidence, status, created_by, created_at, updated_at
 		FROM ai_analysis WHERE id = ?`
 
 	var analysis model.AIAnalysis
-	var inputData, suggestions, relatedAlerts []byte
+	var inputData []byte
 	err := r.db.QueryRow(query, id).Scan(
-		&analysis.ID, &analysis.AlertID, &analysis.ClusterID, &analysis.AlertFingerprint,
-		&analysis.AnalysisType, &analysis.AnalysisMode, &inputData, &analysis.Result,
-		&analysis.RootCause, &suggestions, &relatedAlerts, &analysis.Confidence,
-		&analysis.ModelVersion, &analysis.Status, &analysis.CreatedBy,
+		&analysis.ID, &analysis.AlertID,
+		&analysis.AnalysisType, &inputData, &analysis.Result,
+		&analysis.Confidence, &analysis.Status, &analysis.CreatedBy,
 		&analysis.CreatedAt, &analysis.UpdatedAt,
 	)
 	if err != nil {
@@ -105,31 +98,21 @@ func (r *AnalysisRepository) GetAnalysisByID(id int64) (*model.AIAnalysis, error
 	if inputData != nil {
 		analysis.InputData = inputData
 	}
-	if len(suggestions) > 0 {
-		json.Unmarshal(suggestions, &analysis.Suggestions)
-	}
-	if len(relatedAlerts) > 0 {
-		json.Unmarshal(relatedAlerts, &analysis.RelatedAlerts)
-	}
 
 	return &analysis, nil
 }
 
 // CreateAnalysis creates a new AI analysis
 func (r *AnalysisRepository) CreateAnalysis(analysis *model.AIAnalysis) error {
-	query := `INSERT INTO ai_analysis (alert_id, cluster_id, alert_fingerprint, analysis_type, analysis_mode,
-		input_data, result, root_cause, suggestions, related_alerts, confidence, model_version, status, created_by, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	query := `INSERT INTO ai_analysis (alert_id, analysis_type,
+		input_data, result, confidence, status, created_by, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	inputDataJSON, _ := json.Marshal(analysis.InputData)
-	suggestionsJSON, _ := json.Marshal(analysis.Suggestions)
-	relatedAlertsJSON, _ := json.Marshal(analysis.RelatedAlerts)
 
 	result, err := r.db.Exec(query,
-		analysis.AlertID, analysis.ClusterID, analysis.AlertFingerprint,
-		analysis.AnalysisType, analysis.AnalysisMode, inputDataJSON,
-		analysis.Result, analysis.RootCause, suggestionsJSON, relatedAlertsJSON,
-		analysis.Confidence, analysis.ModelVersion, analysis.Status,
+		analysis.AlertID, analysis.AnalysisType, inputDataJSON,
+		analysis.Result, analysis.Confidence, analysis.Status,
 		analysis.CreatedBy, analysis.CreatedAt, analysis.UpdatedAt,
 	)
 	if err != nil {

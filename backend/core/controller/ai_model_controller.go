@@ -26,7 +26,7 @@ func NewAIModelController(service *service.AIModelService, logger *zap.Logger) *
 
 // GetConfigs handles GET /api/v1/ai/configs
 func (c *AIModelController) GetConfigs(ctx *gin.Context) {
-	configs, err := c.service.GetAllConfigs()
+	configs, err := c.service.GetAll()
 	if err != nil {
 		c.logger.Error("Failed to get AI configs", zap.Error(err))
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -43,7 +43,7 @@ func (c *AIModelController) GetConfig(ctx *gin.Context) {
 		return
 	}
 
-	config, err := c.service.GetConfigByID(id)
+	config, err := c.service.GetByID(id)
 	if err != nil {
 		c.logger.Error("Failed to get AI config", zap.Error(err))
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -54,7 +54,7 @@ func (c *AIModelController) GetConfig(ctx *gin.Context) {
 
 // CreateConfig handles POST /api/v1/ai/configs
 func (c *AIModelController) CreateConfig(ctx *gin.Context) {
-	var config model.AIModelConfig
+	var config model.AIModel
 	if err := ctx.ShouldBindJSON(&config); err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -65,7 +65,7 @@ func (c *AIModelController) CreateConfig(ctx *gin.Context) {
 		user = "anonymous"
 	}
 
-	if err := c.service.CreateConfig(&config, user); err != nil {
+	if err := c.service.Create(&config, user); err != nil {
 		c.logger.Error("Failed to create AI config", zap.Error(err))
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -82,7 +82,7 @@ func (c *AIModelController) UpdateConfig(ctx *gin.Context) {
 		return
 	}
 
-	var config model.AIModelConfig
+	var config model.AIModel
 	if err := ctx.ShouldBindJSON(&config); err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -94,7 +94,7 @@ func (c *AIModelController) UpdateConfig(ctx *gin.Context) {
 		user = "anonymous"
 	}
 
-	if err := c.service.UpdateConfig(&config, user); err != nil {
+	if err := c.service.Update(&config, user); err != nil {
 		c.logger.Error("Failed to update AI config", zap.Error(err))
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -111,7 +111,7 @@ func (c *AIModelController) DeleteConfig(ctx *gin.Context) {
 		return
 	}
 
-	if err := c.service.DeleteConfig(id); err != nil {
+	if err := c.service.Delete(id); err != nil {
 		c.logger.Error("Failed to delete AI config", zap.Error(err))
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -128,7 +128,7 @@ func (c *AIModelController) TestConfig(ctx *gin.Context) {
 		return
 	}
 
-	success, message, err := c.service.TestConfig(id)
+	success, message, err := c.service.Test(id)
 	if err != nil {
 		c.logger.Error("Failed to test AI config", zap.Error(err))
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -150,7 +150,7 @@ func (c *AIModelController) SetDefaultConfig(ctx *gin.Context) {
 		return
 	}
 
-	if err := c.service.SetDefaultConfig(id); err != nil {
+	if err := c.service.SetDefault(id); err != nil {
 		c.logger.Error("Failed to set default AI config", zap.Error(err))
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

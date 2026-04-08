@@ -44,6 +44,10 @@ import {
   CheckOutlined,
   CloseOutlined,
   AppstoreOutlined,
+  CheckCircleFilled,
+  DisconnectOutlined,
+  DatabaseOutlined,
+  SaveOutlined,
 } from '@ant-design/icons';
 import {
   getConfigItems,
@@ -54,12 +58,9 @@ import {
   deleteAIModelConfig,
   testAIModelConfig,
   setDefaultAIModelConfig,
-  getClusters,
-  createCluster,
+  getDefaultCluster,
   updateCluster,
-  deleteCluster,
   testCluster,
-  setDefaultCluster,
 } from '../services/api';
 
 const { Text, Title } = Typography;
@@ -117,11 +118,18 @@ const ConfigCenter = ({ darkMode }) => {
   const [configItems, setConfigItems] = useState([]);
   const [form] = Form.useForm();
   const [aiConfigs, setAiConfigs] = useState([]);
-  const [clusters, setClusters] = useState([]);
   // 系统名称编辑状态
-  const [systemName, setSystemName] = useState('');
+  const [systemName, setSystemName] = useState('SRE AI Platform');
   const [editingSystemName, setEditingSystemName] = useState(false);
   const [systemNameInput, setSystemNameInput] = useState('');
+
+  // 组件挂载时从 localStorage 读取缓存（避免闪烁）
+  useEffect(() => {
+    const cachedName = localStorage.getItem('systemName');
+    if (cachedName) {
+      setSystemName(cachedName);
+    }
+  }, []);
 
   // 根据 URL 参数初始化分类
   useEffect(() => {
@@ -137,7 +145,6 @@ const ConfigCenter = ({ darkMode }) => {
     if (selectedCategory[0]) {
       fetchConfigItems();
       fetchAiConfigs();
-      fetchClusters();
     }
   }, [selectedCategory]);
 
@@ -146,18 +153,30 @@ const ConfigCenter = ({ darkMode }) => {
       setLoading(true);
       const [cat, subCategory] = selectedCategory;
       const res = await getConfigItems(cat, subCategory);
-      setConfigItems(res.data?.data || []);
+      // 转换后端字段名到前端使用的字段名
+      const items = (res.data?.data || []).map(item => ({
+        ...item,
+        key: item.config_key,
+        value: item.config_value,
+        type: item.value_type,
+      }));
+      setConfigItems(items);
       const initialValues = {};
-      res.data?.data?.forEach((item) => {
+      items.forEach((item) => {
         initialValues[item.key] = item.value;
       });
       form.setFieldsValue(initialValues);
       // 如果是基础配置页面，加载系统名称
       if (cat === 'platform' && subCategory === 'basic') {
-        const nameItem = res.data?.data?.find(item => item.key === 'app.name');
-        if (nameItem) {
+        const nameItem = items.find(item => item.key === 'app.name');
+        if (nameItem && nameItem.value) {
           setSystemName(nameItem.value);
           setSystemNameInput(nameItem.value);
+          // 同步更新 localStorage 和通知其他组件
+          localStorage.setItem('systemName', nameItem.value);
+          window.dispatchEvent(new CustomEvent('systemNameChanged', {
+            detail: { name: nameItem.value }
+          }));
         }
       }
     } catch (error) {
@@ -173,15 +192,6 @@ const ConfigCenter = ({ darkMode }) => {
       setAiConfigs(res.data?.data || []);
     } catch (error) {
       console.error('获取AI配置失败', error);
-    }
-  };
-
-  const fetchClusters = async () => {
-    try {
-      const res = await getClusters();
-      setClusters(res.data?.data || []);
-    } catch (error) {
-      console.error('获取集群配置失败', error);
     }
   };
 
@@ -223,6 +233,8 @@ const ConfigCenter = ({ darkMode }) => {
       message.success('系统名称已更新');
       // 更新本地存储，通知其他组件
       localStorage.setItem('systemName', systemNameInput.trim());
+      // 同步更新当前页面显示
+      setSystemName(systemNameInput.trim());
       // 触发自定义事件通知其他组件刷新
       window.dispatchEvent(new CustomEvent('systemNameChanged', {
         detail: { name: systemNameInput.trim() }
@@ -451,11 +463,7 @@ const ConfigCenter = ({ darkMode }) => {
               darkMode={darkMode}
             />
           ) : selectedCategory[0] === 'monitoring' && selectedCategory[1] === 'prometheus' ? (
-            <PrometheusClusterList
-              configs={clusters}
-              onRefresh={fetchClusters}
-              darkMode={darkMode}
-            />
+            <PrometheusClusterList darkMode={darkMode} />
           ) : (
             <Form
               form={form}
@@ -676,183 +684,119 @@ const AiModelConfigList = ({ configs, onRefresh, darkMode }) => {
   );
 };
 
-// Prometheus集群配置列表组件
-const PrometheusClusterList = ({ configs, onRefresh, darkMode }) => {
-  const [modalVisible, setModalVisible] = useState(false);
-  const [editingConfig, setEditingConfig] = useState(null);
-  const [form] = Form.useForm();
-  const [testingId, setTestingId] = useState(null);
+// Prometheus配置组件 - 极简一行布局
+const PrometheusClusterList = ({ darkMode }) => {
+  const [cluster, setCluster] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [testing, setTesting] = useState(false);
+  const [url, setUrl] = useState('');
+  const [status, setStatus] = useState(null);
 
-  const handleCreate = () => {
-    setEditingConfig(null);
-    form.resetFields();
-    form.setFieldsValue({
-      status: 1,
-      is_default: false,
-    });
-    setModalVisible(true);
-  };
+  useEffect(() => {
+    fetchCluster();
+  }, []);
 
-  const handleEdit = (record) => {
-    setEditingConfig(record);
-    form.setFieldsValue({
-      name: record.name,
-      url: record.url,
-      status: record.status,
-      is_default: record.is_default,
-    });
-    setModalVisible(true);
-  };
-
-  const handleDelete = async (id) => {
+  const fetchCluster = async () => {
     try {
-      await deleteCluster(id);
-      message.success('删除成功');
-      onRefresh();
-    } catch (error) {
-      message.error('删除失败');
-    }
-  };
-
-  const handleTest = async (id) => {
-    try {
-      setTestingId(id);
-      const res = await testCluster(id);
-      if (res.data?.success) {
-        message.success(res.data?.message || '连接成功');
-      } else {
-        message.error(res.data?.message || '连接失败');
+      setLoading(true);
+      const res = await getDefaultCluster();
+      const clusterData = res.data?.data;
+      setCluster(clusterData);
+      if (clusterData) {
+        setUrl(clusterData.url);
+        setStatus(clusterData.status);
       }
     } catch (error) {
-      message.error('测试失败');
+      console.error('获取Prometheus配置失败', error);
     } finally {
-      setTestingId(null);
+      setLoading(false);
     }
   };
 
-  const handleSetDefault = async (id) => {
-    try {
-      await setDefaultCluster(id);
-      message.success('已设为默认集群');
-      onRefresh();
-    } catch (error) {
-      message.error('设置失败');
+  const handleSave = async () => {
+    if (!url.trim()) {
+      message.error('请输入 Prometheus 地址');
+      return;
     }
-  };
-
-  const handleSubmit = async (values) => {
     try {
-      if (editingConfig) {
-        await updateCluster(editingConfig.id, values);
-        message.success('更新成功');
-      } else {
-        await createCluster(values);
-        message.success('创建成功');
+      if (cluster?.id) {
+        console.log('Saving cluster:', { id: cluster.id, name: cluster.name, url: url.trim() });
+        const response = await updateCluster(cluster.id, {
+          name: cluster.name || 'Prometheus',
+          url: url.trim(),
+          status: 1
+        });
+        console.log('Save response:', response.data);
+        message.success('配置已保存');
+        // 延迟一下再获取，确保数据库已更新
+        setTimeout(() => {
+          fetchCluster();
+        }, 500);
       }
-      setModalVisible(false);
-      onRefresh();
     } catch (error) {
-      message.error(editingConfig ? '更新失败' : '创建失败');
+      console.error('Save failed:', error);
+      message.error('保存失败: ' + (error.response?.data?.error || error.message));
     }
   };
 
-  const columns = [
-    {
-      title: '名称',
-      dataIndex: 'name',
-      render: (text, record) => (
-        <Space>
-          {text}
-          {record.is_default && <Tag color="gold">默认</Tag>}
-        </Space>
-      ),
-    },
-    {
-      title: 'URL',
-      dataIndex: 'url',
-      ellipsis: true,
-    },
-    {
-      title: '健康状态',
-      dataIndex: 'status',
-      render: (status) => (
-        <Badge
-          status={status === 1 ? 'success' : status === 2 ? 'error' : 'default'}
-          text={status === 1 ? '健康' : status === 2 ? '异常' : '停用'}
-        />
-      ),
-    },
-    {
-      title: '操作',
-      width: 320,
-      render: (_, record) => (
-        <Space>
-          <Button
-            size="small"
-            loading={testingId === record.id}
-            onClick={() => handleTest(record.id)}
-          >
-            测试连接
-          </Button>
-          {!record.is_default && record.status !== 0 && (
-            <Button size="small" onClick={() => handleSetDefault(record.id)}>
-              设为默认
-            </Button>
-          )}
-          <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
-            编辑
-          </Button>
-          <Popconfirm title="确定删除?" onConfirm={() => handleDelete(record.id)}>
-            <Button size="small" danger icon={<DeleteOutlined />}>
-              删除
-            </Button>
-          </Popconfirm>
-        </Space>
-      ),
-    },
-  ];
+  const handleTest = async () => {
+    if (!cluster?.id) {
+      message.warning('请先配置 Prometheus 地址');
+      return;
+    }
+    try {
+      setTesting(true);
+      const res = await testCluster(cluster.id);
+      if (res.data?.success) {
+        setStatus(1);
+        message.success('连接正常');
+      } else {
+        setStatus(2);
+        message.error('连接失败');
+      }
+    } catch (error) {
+      setStatus(2);
+      message.error('连接失败');
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  if (loading) {
+    return <Spin size="small" />;
+  }
 
   return (
-    <div>
-      <div style={{ marginBottom: '16px' }}>
-        <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-          添加Prometheus集群
-        </Button>
-      </div>
-      <Table columns={columns} dataSource={configs} rowKey="id" pagination={false} />
-
-      <Modal
-        title={editingConfig ? '编辑集群' : '添加Prometheus集群'}
-        open={modalVisible}
-        onCancel={() => setModalVisible(false)}
-        onOk={() => form.submit()}
-        width={600}
-      >
-        <Form form={form} layout="vertical" onFinish={handleSubmit}>
-          <Form.Item name="name" label="集群名称" rules={[{ required: true, message: '请输入集群名称' }]}>
-            <Input placeholder="例如: Production" />
-          </Form.Item>
-          <Form.Item
-            name="url"
-            label="Prometheus URL"
-            rules={[{ required: true, message: '请输入Prometheus地址' }]}
-          >
-            <Input placeholder="例如: http://prometheus:9090" />
-          </Form.Item>
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="status" valuePropName="checked" label="启用">
-                <Switch checkedChildren="启用" unCheckedChildren="停用" defaultChecked />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="is_default" valuePropName="checked" label="设为默认">
-                <Switch />
-              </Form.Item>
-            </Col>
-          </Row>
-        </Form>
-      </Modal>
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '12px',
+        padding: '16px 20px',
+        background: darkMode ? '#1f1f1f' : '#fff',
+        borderRadius: '8px',
+        border: `1px solid ${darkMode ? '#303030' : '#e8e8e8'}`,
+      }}
+    >
+      <Input
+        value={url}
+        onChange={(e) => setUrl(e.target.value)}
+        placeholder="http://localhost:9090"
+        style={{ width: '320px' }}
+        prefix={<GlobalOutlined style={{ color: '#1677ff' }} />}
+        onPressEnter={handleSave}
+      />
+      <Button type="primary" loading={testing} onClick={handleTest}>
+        测试连接
+      </Button>
+      <Button onClick={handleSave}>保存</Button>
+      {status === 1 ? (
+        <Tag color="success" style={{ margin: 0 }}>连接正常</Tag>
+      ) : status === 2 ? (
+        <Tag color="error" style={{ margin: 0 }}>连接失败</Tag>
+      ) : (
+        <Tag style={{ margin: 0 }}>未测试</Tag>
+      )}
     </div>
   );
 };

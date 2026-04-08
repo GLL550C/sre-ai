@@ -10,51 +10,46 @@ import (
 	"go.uber.org/zap"
 )
 
-// RuleController handles alert rule HTTP requests
+// RuleController 告警规则控制器
 type RuleController struct {
-	ruleService *service.RuleService
-	logger      *zap.Logger
+	service *service.RuleService
+	logger  *zap.Logger
 }
 
-// NewRuleController creates a new rule controller
-func NewRuleController(ruleService *service.RuleService, logger *zap.Logger) *RuleController {
-	return &RuleController{
-		ruleService: ruleService,
-		logger:      logger,
-	}
+// NewRuleController 创建控制器
+func NewRuleController(service *service.RuleService, logger *zap.Logger) *RuleController {
+	return &RuleController{service: service, logger: logger}
 }
 
-// GetRules handles GET /api/v1/rules
+// GetRules 获取规则列表
 func (c *RuleController) GetRules(ctx *gin.Context) {
-	rules, err := c.ruleService.GetRules()
+	rules, err := c.service.GetAll()
 	if err != nil {
-		c.logger.Error("Failed to get rules", zap.Error(err))
+		c.logger.Error("获取规则失败", zap.Error(err))
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
 	ctx.JSON(http.StatusOK, gin.H{"data": rules})
 }
 
-// GetRule handles GET /api/v1/rules/:id
+// GetRule 获取单个规则
 func (c *RuleController) GetRule(ctx *gin.Context) {
 	id, err := strconv.ParseInt(ctx.Param("id"), 10, 64)
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "无效的ID"})
 		return
 	}
 
-	rule, err := c.ruleService.GetRule(id)
+	rule, err := c.service.GetByID(id)
 	if err != nil {
-		c.logger.Error("Failed to get rule", zap.Error(err))
+		c.logger.Error("获取规则失败", zap.Error(err))
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
 	ctx.JSON(http.StatusOK, gin.H{"data": rule})
 }
 
-// CreateRule handles POST /api/v1/rules
+// CreateRule 创建规则
 func (c *RuleController) CreateRule(ctx *gin.Context) {
 	var rule model.AlertRule
 	if err := ctx.ShouldBindJSON(&rule); err != nil {
@@ -62,20 +57,19 @@ func (c *RuleController) CreateRule(ctx *gin.Context) {
 		return
 	}
 
-	if err := c.ruleService.CreateRule(&rule); err != nil {
-		c.logger.Error("Failed to create rule", zap.Error(err))
+	if err := c.service.Create(&rule); err != nil {
+		c.logger.Error("创建规则失败", zap.Error(err))
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
 	ctx.JSON(http.StatusCreated, gin.H{"data": rule})
 }
 
-// UpdateRule handles PUT /api/v1/rules/:id
+// UpdateRule 更新规则
 func (c *RuleController) UpdateRule(ctx *gin.Context) {
 	id, err := strconv.ParseInt(ctx.Param("id"), 10, 64)
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "无效的ID"})
 		return
 	}
 
@@ -86,28 +80,26 @@ func (c *RuleController) UpdateRule(ctx *gin.Context) {
 	}
 
 	rule.ID = id
-	if err := c.ruleService.UpdateRule(&rule); err != nil {
-		c.logger.Error("Failed to update rule", zap.Error(err))
+	if err := c.service.Update(&rule); err != nil {
+		c.logger.Error("更新规则失败", zap.Error(err))
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
 	ctx.JSON(http.StatusOK, gin.H{"data": rule})
 }
 
-// DeleteRule handles DELETE /api/v1/rules/:id
+// DeleteRule 删除规则
 func (c *RuleController) DeleteRule(ctx *gin.Context) {
 	id, err := strconv.ParseInt(ctx.Param("id"), 10, 64)
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "无效的ID"})
 		return
 	}
 
-	if err := c.ruleService.DeleteRule(id); err != nil {
-		c.logger.Error("Failed to delete rule", zap.Error(err))
+	if err := c.service.Delete(id); err != nil {
+		c.logger.Error("删除规则失败", zap.Error(err))
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
-	ctx.JSON(http.StatusOK, gin.H{"message": "Rule deleted"})
+	ctx.JSON(http.StatusOK, gin.H{"message": "规则已删除"})
 }

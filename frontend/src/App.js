@@ -18,7 +18,7 @@ import Analysis from './pages/Analysis';
 import ConfigCenter from './pages/ConfigCenter';
 import Login from './pages/Login';
 import UserManagement from './pages/UserManagement';
-import { getConfigValue } from './services/api';
+import { getSystemName } from './services/api';
 
 const { Header, Sider, Content } = Layout;
 
@@ -26,7 +26,15 @@ function App() {
   const [darkMode, setDarkMode] = useState(false);
   const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [systemName, setSystemName] = useState('SRE AI');
+  const [systemName, setSystemName] = useState('SRE AI Platform');
+
+  // 组件挂载时从 localStorage 读取缓存（避免闪烁）
+  useEffect(() => {
+    const cachedName = localStorage.getItem('systemName');
+    if (cachedName) {
+      setSystemName(cachedName);
+    }
+  }, []);
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -54,10 +62,12 @@ function App() {
   // 从后端获取系统名称
   const fetchSystemName = async () => {
     try {
-      const res = await getConfigValue('app.name');
-      if (res.data?.data?.value) {
-        setSystemName(res.data.data.value);
-        localStorage.setItem('systemName', res.data.data.value);
+      const res = await getSystemName();
+      // 后端返回的数据结构是 { data: "SRE AI Platform" }
+      const configValue = res.data?.data;
+      if (configValue) {
+        setSystemName(configValue);
+        localStorage.setItem('systemName', configValue);
       }
     } catch (error) {
       console.error('Failed to fetch system name:', error);
@@ -211,17 +221,12 @@ function App() {
             boxShadow: '2px 0 8px rgba(0,0,0,0.1)',
           }}
         >
-          <div style={{ padding: '20px', textAlign: 'center' }}>
-            <h2 style={{ margin: 0, color: darkMode ? '#fff' : '#1d1d1f' }}>
-              {systemName}
-            </h2>
-          </div>
           <Menu
             theme={darkMode ? 'dark' : 'light'}
             mode="inline"
             selectedKeys={[location.pathname]}
             items={menuItems}
-            style={{ border: 'none' }}
+            style={{ border: 'none', marginTop: '16px' }}
           />
         </Sider>
         <Layout>
@@ -231,10 +236,58 @@ function App() {
               padding: '0 24px',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'flex-end',
+              justifyContent: 'space-between',
               boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
             }}
           >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <svg
+                width="32"
+                height="32"
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M12 2L2 7L12 12L22 7L12 2Z"
+                  stroke={darkMode ? '#fff' : '#1677ff'}
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  fill={darkMode ? 'rgba(255,255,255,0.1)' : 'rgba(22,119,255,0.1)'}
+                />
+                <path
+                  d="M2 17L12 22L22 17"
+                  stroke={darkMode ? '#fff' : '#1677ff'}
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <path
+                  d="M2 12L12 17L22 12"
+                  stroke={darkMode ? '#fff' : '#1677ff'}
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <circle
+                  cx="12"
+                  cy="12"
+                  r="3"
+                  fill={darkMode ? '#fff' : '#1677ff'}
+                  fillOpacity="0.9"
+                />
+              </svg>
+              <span
+                style={{
+                  fontSize: '18px',
+                  fontWeight: 600,
+                  color: darkMode ? '#fff' : '#1d1d1f',
+                }}
+              >
+                {systemName}
+              </span>
+            </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <BulbOutlined style={{ color: darkMode ? '#fff' : '#1d1d1f' }} />

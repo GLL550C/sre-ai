@@ -107,7 +107,13 @@ func JWTAuth(authService *service.AuthService) gin.HandlerFunc {
 		}
 
 		// 跳过获取系统名称接口（登录页面需要显示）
-		if strings.Contains(path, "/config/items/app.name") {
+		if strings.Contains(path, "/config/app/name") {
+			c.Next()
+			return
+		}
+
+		// 跳过AI健康检查和模型信息接口（AI分析页面需要）
+		if strings.Contains(path, "/ai/health") || strings.Contains(path, "/ai/model") {
 			c.Next()
 			return
 		}

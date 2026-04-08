@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Form, Input, Button, Card, message, Row, Col, Alert } from 'antd';
 import { UserOutlined, LockOutlined, SafetyOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import { login, getCaptcha, getConfigValue } from '../services/api';
+import { login, getCaptcha, getSystemName } from '../services/api';
 
 const Login = ({ onLoginSuccess }) => {
   const [form] = Form.useForm();
@@ -10,6 +10,14 @@ const Login = ({ onLoginSuccess }) => {
   const [captcha, setCaptcha] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [systemName, setSystemName] = useState('SRE AI Platform');
+
+  // 组件挂载时从 localStorage 读取缓存（避免闪烁）
+  useEffect(() => {
+    const cachedName = localStorage.getItem('systemName');
+    if (cachedName) {
+      setSystemName(cachedName);
+    }
+  }, []);
   const navigate = useNavigate();
 
   // 加载系统名称
@@ -20,9 +28,12 @@ const Login = ({ onLoginSuccess }) => {
   // 从后端获取系统名称
   const fetchSystemName = async () => {
     try {
-      const res = await getConfigValue('app.name');
-      if (res.data?.data?.value) {
-        setSystemName(res.data.data.value);
+      const res = await getSystemName();
+      // 后端返回的数据结构是 { data: "SRE AI Platform" }
+      const configValue = res.data?.data;
+      if (configValue) {
+        setSystemName(configValue);
+        localStorage.setItem('systemName', configValue);
       }
     } catch (error) {
       console.error('Failed to fetch system name:', error);

@@ -85,7 +85,7 @@ func (s *UserService) CreateUser(req *model.CreateUserRequest, createdBy string)
 }
 
 // UpdateUser 更新用户
-func (s *UserService) UpdateUser(id int64, email, phone, role string, status int) (*model.User, error) {
+func (s *UserService) UpdateUser(id int64, email, phone, role string, status int8) (*model.User, error) {
 	user, err := s.userRepo.GetByID(id)
 	if err != nil {
 		return nil, err

@@ -10,51 +10,57 @@ import (
 	"go.uber.org/zap"
 )
 
-// ClusterController handles Prometheus cluster HTTP requests
+// ClusterController Prometheus集群控制器
 type ClusterController struct {
-	clusterService *service.ClusterService
-	logger         *zap.Logger
+	service *service.ClusterService
+	logger  *zap.Logger
 }
 
-// NewClusterController creates a new cluster controller
-func NewClusterController(clusterService *service.ClusterService, logger *zap.Logger) *ClusterController {
-	return &ClusterController{
-		clusterService: clusterService,
-		logger:         logger,
-	}
+// NewClusterController 创建控制器
+func NewClusterController(service *service.ClusterService, logger *zap.Logger) *ClusterController {
+	return &ClusterController{service: service, logger: logger}
 }
 
-// GetClusters handles GET /api/v1/clusters
+// GetClusters 获取所有集群
 func (c *ClusterController) GetClusters(ctx *gin.Context) {
-	clusters, err := c.clusterService.GetClusters()
+	clusters, err := c.service.GetAll()
 	if err != nil {
-		c.logger.Error("Failed to get clusters", zap.Error(err))
+		c.logger.Error("获取集群失败", zap.Error(err))
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
 	ctx.JSON(http.StatusOK, gin.H{"data": clusters})
 }
 
-// GetCluster handles GET /api/v1/clusters/:id
+// GetCluster 获取单个集群
 func (c *ClusterController) GetCluster(ctx *gin.Context) {
 	id, err := strconv.ParseInt(ctx.Param("id"), 10, 64)
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "无效的ID"})
 		return
 	}
 
-	cluster, err := c.clusterService.GetCluster(id)
+	cluster, err := c.service.GetByID(id)
 	if err != nil {
-		c.logger.Error("Failed to get cluster", zap.Error(err))
+		c.logger.Error("获取集群失败", zap.Error(err))
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
 	ctx.JSON(http.StatusOK, gin.H{"data": cluster})
 }
 
-// CreateCluster handles POST /api/v1/clusters
+// GetDefaultCluster 获取默认集群
+func (c *ClusterController) GetDefaultCluster(ctx *gin.Context) {
+	cluster, err := c.service.GetDefault()
+	if err != nil {
+		c.logger.Error("获取默认集群失败", zap.Error(err))
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	ctx.JSON(http.StatusOK, gin.H{"data": cluster})
+}
+
+// CreateCluster 创建集群
 func (c *ClusterController) CreateCluster(ctx *gin.Context) {
 	var cluster model.PrometheusCluster
 	if err := ctx.ShouldBindJSON(&cluster); err != nil {
@@ -62,20 +68,19 @@ func (c *ClusterController) CreateCluster(ctx *gin.Context) {
 		return
 	}
 
-	if err := c.clusterService.CreateCluster(&cluster); err != nil {
-		c.logger.Error("Failed to create cluster", zap.Error(err))
+	if err := c.service.Create(&cluster); err != nil {
+		c.logger.Error("创建集群失败", zap.Error(err))
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
 	ctx.JSON(http.StatusCreated, gin.H{"data": cluster})
 }
 
-// UpdateCluster handles PUT /api/v1/clusters/:id
+// UpdateCluster 更新集群
 func (c *ClusterController) UpdateCluster(ctx *gin.Context) {
 	id, err := strconv.ParseInt(ctx.Param("id"), 10, 64)
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "无效的ID"})
 		return
 	}
 
@@ -86,8 +91,8 @@ func (c *ClusterController) UpdateCluster(ctx *gin.Context) {
 	}
 
 	cluster.ID = id
-	if err := c.clusterService.UpdateCluster(&cluster); err != nil {
-		c.logger.Error("Failed to update cluster", zap.Error(err))
+	if err := c.service.Update(&cluster); err != nil {
+		c.logger.Error("更新集群失败", zap.Error(err))
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -95,67 +100,53 @@ func (c *ClusterController) UpdateCluster(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, gin.H{"data": cluster})
 }
 
-// TestCluster handles GET /api/v1/clusters/:id/test
-func (c *ClusterController) TestCluster(ctx *gin.Context) {
-	id, err := strconv.ParseInt(ctx.Param("id"), 10, 64)
-	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
-		return
-	}
-
-	cluster, err := c.clusterService.GetCluster(id)
-	if err != nil {
-		c.logger.Error("Failed to get cluster", zap.Error(err))
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	success, message := c.clusterService.TestCluster(cluster.URL)
-	ctx.JSON(http.StatusOK, gin.H{"success": success, "message": message})
-}
-
-// SetDefaultCluster handles POST /api/v1/clusters/:id/default
-func (c *ClusterController) SetDefaultCluster(ctx *gin.Context) {
-	id, err := strconv.ParseInt(ctx.Param("id"), 10, 64)
-	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
-		return
-	}
-
-	if err := c.clusterService.SetDefaultCluster(id); err != nil {
-		c.logger.Error("Failed to set default cluster", zap.Error(err))
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	ctx.JSON(http.StatusOK, gin.H{"message": "已设为默认集群"})
-}
-
-// GetDefaultCluster handles GET /api/v1/clusters/default
-func (c *ClusterController) GetDefaultCluster(ctx *gin.Context) {
-	cluster, err := c.clusterService.GetDefaultCluster()
-	if err != nil {
-		c.logger.Error("Failed to get default cluster", zap.Error(err))
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	ctx.JSON(http.StatusOK, gin.H{"data": cluster})
-}
-
-// DeleteCluster handles DELETE /api/v1/clusters/:id
+// DeleteCluster 删除集群
 func (c *ClusterController) DeleteCluster(ctx *gin.Context) {
 	id, err := strconv.ParseInt(ctx.Param("id"), 10, 64)
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "无效的ID"})
 		return
 	}
 
-	if err := c.clusterService.DeleteCluster(id); err != nil {
-		c.logger.Error("Failed to delete cluster", zap.Error(err))
+	if err := c.service.Delete(id); err != nil {
+		c.logger.Error("删除集群失败", zap.Error(err))
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	ctx.JSON(http.StatusOK, gin.H{"message": "集群已删除"})
+}
+
+// TestCluster 测试集群连接
+func (c *ClusterController) TestCluster(ctx *gin.Context) {
+	id, err := strconv.ParseInt(ctx.Param("id"), 10, 64)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "无效的ID"})
+		return
+	}
+
+	cluster, err := c.service.GetByID(id)
+	if err != nil {
+		c.logger.Error("获取集群失败", zap.Error(err))
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	ctx.JSON(http.StatusOK, gin.H{"message": "Cluster deleted"})
+	success, message := c.service.Test(cluster.URL)
+	ctx.JSON(http.StatusOK, gin.H{"success": success, "message": message})
+}
+
+// SetDefaultCluster 设置默认集群
+func (c *ClusterController) SetDefaultCluster(ctx *gin.Context) {
+	id, err := strconv.ParseInt(ctx.Param("id"), 10, 64)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "无效的ID"})
+		return
+	}
+
+	if err := c.service.SetDefault(id); err != nil {
+		c.logger.Error("设置默认集群失败", zap.Error(err))
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	ctx.JSON(http.StatusOK, gin.H{"message": "已设为默认集群"})
 }
